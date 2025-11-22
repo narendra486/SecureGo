@@ -45,12 +45,20 @@
     }
 
     pre {
-      background: #0f172a;
-      color: #e2e8f0;
+      background: #f6f8fa;
+      color: #24292e;
       padding: 1rem;
       border-radius: 6px;
+      border: 1px solid #e0e0e0;
       overflow: auto;
       min-height: 200px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
     }
 
     label {
@@ -68,6 +76,27 @@
       gap: 0.5rem;
       align-items: center;
       flex-wrap: wrap;
+    }
+
+    .hl-bad {
+      background: #ffe3e3;
+      color: #8b0000;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .hl-good {
+      background: #e2fbe2;
+      color: #0a5a0a;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .code-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
     }
   </style>
 </head>
@@ -90,19 +119,14 @@
       <div>
         <label for="target">Target</label>
         <select id="target">
-          <option value="/api">SecureGO API (proxy)</option>
-          <option value="/vuln">Vuln-Go (proxy)</option>
-          <option value="custom">Custom base URL</option>
+          <option value="/api">SecureGo API</option>
+          <option value="/vuln">VulnGo</option>
         </select>
-      </div>
-      <div id="custom-base-wrap" class="row" style="flex:1; display:none;">
-        <label for="custom-base">Base URL</label>
-        <input id="custom-base" style="min-width: 250px;" placeholder="http://localhost:8080/vuln">
       </div>
     </div>
     <div class="row" style="margin-top:0.5rem;">
       <label for="payload">Payload</label>
-      <input id="payload" style="flex:1;" />
+      <textarea id="payload" rows="1" style="flex:1; resize: vertical;"></textarea>
       <button id="send">Send</button>
     </div>
     <small id="bug-desc"></small>
@@ -111,90 +135,108 @@
   <div class="grid" style="margin-top:1rem;">
     <div class="card">
       <h3>Request</h3>
-      <pre id="req-view">(none)</pre>
+      <pre id="req-view"></pre>
     </div>
     <div class="card">
       <h3>Response</h3>
-      <pre id="res-view">(none)</pre>
+      <pre id="res-view"></pre>
     </div>
   </div>
 
   <script>
     const bugs = [
-      { id: 'xss', name: 'XSS (reflected)', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
-      { id: 'sqli', name: 'SQLi (boolean)', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
+      { id: 'xss', name: 'XSS', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
+      { id: 'sqli', name: 'SQLi', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
       { id: 'ssrf', name: 'SSRF', method: 'GET', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
       { id: 'path', name: 'Path Traversal', method: 'GET', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
-      { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
-      { id: 'upload', name: 'Upload (no validation)', method: 'POST', path: '/upload', payload: 'sample.txt', desc: 'Uploads without size/ext/MIME checks.' }
+      { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' }
     ];
 
-  const bugSelect = document.getElementById('bug');
-  const targetSelect = document.getElementById('target');
-  const customBaseWrap = document.getElementById('custom-base-wrap');
-  const customBaseInput = document.getElementById('custom-base');
-  const payloadInput = document.getElementById('payload');
-  const descEl = document.getElementById('bug-desc');
-  const reqView = document.getElementById('req-view');
-  const resView = document.getElementById('res-view');
+    const bugSelect = document.getElementById('bug');
+    const targetSelect = document.getElementById('target');
+    const payloadInput = document.getElementById('payload');
+    const descEl = document.getElementById('bug-desc');
+    const reqView = document.getElementById('req-view');
+    const resView = document.getElementById('res-view');
+    const codeInsecure = document.getElementById('code-insecure');
+    const codeSecure = document.getElementById('code-secure');
 
-  bugs.forEach(b => {
-  const opt = document.createElement('option');
-  opt.value = b.id;
-  opt.textContent = b.name;
-  bugSelect.appendChild(opt);
-  });
+    bugs.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = b.name;
+      bugSelect.appendChild(opt);
+    });
 
-  function currentBug() {
-  return bugs.find(b => b.id === bugSelect.value) || bugs[0];
-  }
+    function currentBug() {
+      return bugs.find(b => b.id === bugSelect.value) || bugs[0];
+    }
 
-  function updateUI() {
-  const bug = currentBug();
-  payloadInput.value = bug.payload;
-  descEl.textContent = bug.desc;
-  customBaseWrap.style.display = targetSelect.value === 'custom' ? 'flex' : 'none';
-  }
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
 
-  bugSelect.addEventListener('change', updateUI);
-  targetSelect.addEventListener('change', updateUI);
-  updateUI();
+    function highlight(code, payload, cls) {
+      const escapedCode = escapeHtml(code || '');
+      if (!payload) return escapedCode;
+      const escPayload = escapeHtml(payload);
+      return escapedCode.split(escPayload).join(`<span class="${cls}">${escPayload}</span>`);
+    }
 
-  document.getElementById('send').addEventListener('click', async () => {
-  const bug = currentBug();
-  const base = targetSelect.value === 'custom' ? customBaseInput.value.trim() : targetSelect.value;
-  if (!base) {
-  alert('Provide base URL');
-  return;
-  }
-  let url = base + bug.path;
-  const headers = {};
-  let body;
-  let method = bug.method;
+    function updateUI() {
+      const bug = currentBug();
+      payloadInput.value = bug.payload;
+      descEl.textContent = bug.desc;
+      const payloadVal = payloadInput.value;
+      codeInsecure.innerHTML = [
+        '// Insecure source -> sink',
+        highlight(bug.insecure, payloadVal, 'hl-bad')
+      ].join('\n');
+      codeSecure.innerHTML = [
+        '// Secure source -> sink',
+        highlight(bug.secure, payloadVal, 'hl-good')
+      ].join('\n');
+    }
 
-  if (bug.id === 'upload') {
-  const form = new FormData();
-  form.append('file', new Blob(['sample upload'], { type: 'text/plain' }), payloadInput.value || 'sample.txt');
-  body = form;
-  headers['X-CSRF-Token'] = ''; // set if needed for SecureGO
-  } else {
-  const params = new URLSearchParams();
-  params.set(bug.param, payloadInput.value);
-  url += '?' + params.toString();
-  }
+    bugSelect.addEventListener('change', updateUI);
+    targetSelect.addEventListener('change', updateUI);
+    updateUI();
 
-  const reqPreview = { method, url, headers: headers, body: bug.id === 'upload' ? '(multipart form)' : null };
-  reqView.textContent = JSON.stringify(reqPreview, null, 2);
+    document.getElementById('send').addEventListener('click', async () => {
+      const bug = currentBug();
+      const base = targetSelect.value === 'custom' ? customBaseInput.value.trim() : targetSelect.value;
+      if (!base) {
+        alert('Provide base URL');
+        return;
+      }
+      let url = base + bug.path;
+      const headers = {};
+      let body;
+      let method = bug.method;
 
-  try {
-  const res = await fetch(url, { method, headers, body, credentials: 'include' });
-  const text = await res.text();
-  const resPreview = { status: res.status, headers: Object.fromEntries(res.headers.entries()), body: text };
-  resView.textContent = JSON.stringify(resPreview, null, 2);
-  } catch (e) {
-  resView.textContent = `Error: ${e}`;
-  }
-  });
+      if (bug.id === 'upload') {
+        const form = new FormData();
+        form.append('file', new Blob(['sample upload'], { type: 'text/plain' }), payloadInput.value || 'sample.txt');
+        body = form;
+        headers['X-CSRF-Token'] = ''; // set if needed for SecureGO
+      } else {
+        const params = new URLSearchParams();
+        params.set(bug.param, payloadInput.value);
+        url += '?' + params.toString();
+      }
+
+      const reqPreview = { method, url, headers: headers, body: bug.id === 'upload' ? '(multipart form)' : null };
+      reqView.textContent = JSON.stringify(reqPreview, null, 2);
+
+      try {
+        const res = await fetch(url, { method, headers, body, credentials: 'include' });
+        const text = await res.text();
+        const resPreview = { status: res.status, headers: Object.fromEntries(res.headers.entries()), body: text };
+        resView.textContent = JSON.stringify(resPreview, null, 2);
+      } catch (e) {
+        resView.textContent = `Error: ${e}`;
+      }
+    });
   </script>
 </body>
 
