@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"net/http"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // Config captures the HTTP server knobs with secure defaults.
@@ -17,6 +19,9 @@ type Config struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	EnableH2C         bool // optional; default off
+	EnableH2          bool
+	H2MaxConcurrent   uint32
+	H2ReadIdle        time.Duration
 }
 
 // DefaultConfig returns a hardened baseline suitable for public APIs.
@@ -30,6 +35,9 @@ func DefaultConfig() Config {
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		EnableH2:          true,
+		H2MaxConcurrent:   128,
+		H2ReadIdle:        30 * time.Second,
 	}
 }
 
@@ -48,6 +56,21 @@ func New(handler http.Handler, cfg Config) *http.Server {
 	// Strict TLS only when certs are set; otherwise the caller can decide to run plain HTTP inside private networks.
 	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
 		srv.TLSConfig = nil
+		// Optionally allow H2C with explicit flag (off by default).
+		if cfg.EnableH2C {
+			http2.ConfigureServer(srv, &http2.Server{
+				MaxConcurrentStreams: cfg.H2MaxConcurrent,
+				ReadIdleTimeout:      cfg.H2ReadIdle,
+			})
+		}
+	}
+
+	// Configure HTTP/2 with limits to reduce DoS risk.
+	if cfg.EnableH2 && srv.TLSConfig != nil {
+		http2.ConfigureServer(srv, &http2.Server{
+			MaxConcurrentStreams: cfg.H2MaxConcurrent,
+			ReadIdleTimeout:      cfg.H2ReadIdle,
+		})
 	}
 
 	return srv
@@ -55,16 +78,8 @@ func New(handler http.Handler, cfg Config) *http.Server {
 
 func tlsConfig() *tls.Config {
 	return &tls.Config{
-		MinVersion:       tls.VersionTLS12,
-		CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		},
+		MinVersion:               tls.VersionTLS13,
+		CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
 		PreferServerCipherSuites: true,
 		SessionTicketsDisabled:   true,
 	}

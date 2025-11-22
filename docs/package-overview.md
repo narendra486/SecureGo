@@ -23,7 +23,10 @@ Use this as a quick map of what each package does and which methods to call.
 - SAML: `SAMLValidator.ValidateAssertion` skeleton.
 
 ## InputValidation
-- `internal/validation`: JSON decode + unknown-field rejection (`DecodeStrictJSON`), `DecodeAndValidate` (with validator tags), `NewValidator`, `ValidateStruct`, `CleanJoin`, and helpers for strings (`ASCIIOnly`, `UTF8`, `LengthBetween`, `MatchesRegex`, `InAllowlist`), paths/URLs (`SanitizePath`, `ValidateURL`), files/forms (`ValidateMultipart`, `ValidateFileUpload`).
+- `internal/inputvalidation`: JSON decode + unknown-field rejection (`DecodeStrictJSON`, `DecodeAndValidate` with validator tags, `NewValidator`, `ValidateStruct`, `CleanJoin`) and helpers for strings (`ASCIIOnly`, `UTF8`, `LengthBetween`, `MatchesRegex`, `InAllowlist`), paths/URLs (`SanitizePath`, `ValidateURL`).
+
+## FileValidation
+- `internal/filevalidation`: multipart/form limits (`ValidateMultipart`), upload checks (`ValidateFileUpload` for size/ext/MIME), safe saving (`SaveUploadedFile`, `ScanAndSave`), zip extraction with traversal/symlink guard (`ExtractZipSafe`), download headers (`SetDownloadHeaders`), and MIME sniffing (`DetectMIME`).
 
 ## internal/encoding
 - Escapers: `HTMLEscape`, `AttributeEscape`, `URLEncode` for templating/output contexts.

@@ -15,10 +15,11 @@ import (
 	securecrypto "Securego/internal/crypto"
 	"Securego/internal/graphqlapi"
 	"Securego/internal/grpcapi"
+	"Securego/internal/inputvalidation"
 	"Securego/internal/middleware"
 	"Securego/internal/server"
 	"Securego/internal/telemetry"
-	"Securego/internal/validation"
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 func main() {
@@ -36,7 +37,7 @@ func main() {
 	csrf := middleware.NewCSRF(middleware.DefaultCSRFConfig())
 	rateLimiter := middleware.NewIPRateLimit(100*time.Millisecond, 10)
 	waf := mustWAF(logger)
-	validator := validation.NewValidator()
+	validator := inputvalidation.NewValidator()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +106,7 @@ func main() {
 			return
 		}
 		var req profileRequest
-		if err := validation.DecodeAndValidate(r.Body, &req, validator); err != nil {
+		if err := inputvalidation.DecodeAndValidate(r.Body, &req, validator); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -225,34 +226,55 @@ func mustSessionCodec(logger telemetry.Logger) *auth.SessionCodec {
 }
 
 func mustJWTValidator(logger telemetry.Logger) auth.JWTValidator {
-	pubPath := os.Getenv("JWT_RS_PUBLIC_KEY")
-	if pubPath == "" {
-		logger.Error("JWT_RS_PUBLIC_KEY not provided; RS256/RS512 validation disabled")
-		os.Exit(1)
-	}
-	pubBytes, err := os.ReadFile(pubPath)
-	if err != nil {
-		logger.Error("read jwt rsa pubkey failed", "err", err)
-		os.Exit(1)
-	}
-	pubKey, err := auth.ParseRSAPublicKeyFromPEM(pubBytes)
-	if err != nil {
-		logger.Error("parse jwt rsa pubkey failed", "err", err)
-		os.Exit(1)
-	}
-	alg := os.Getenv("JWT_RS_ALG")
-	if alg == "" {
-		alg = "RS256"
-	}
-	if alg != "RS256" && alg != "RS512" {
-		logger.Error("unsupported JWT_RS_ALG (only RS256 or RS512)")
-		os.Exit(1)
+	// Prefer Ed25519 if provided; fall back to RSA.
+	edPath := os.Getenv("JWT_ED_PUBLIC_KEY")
+	rsPath := os.Getenv("JWT_RS_PUBLIC_KEY")
+	var keyFunc jwt.Keyfunc
+	var alg string
+	if edPath != "" {
+		pubBytes, err := os.ReadFile(edPath)
+		if err != nil {
+			logger.Error("read jwt ed25519 pubkey failed", "err", err)
+			os.Exit(1)
+		}
+		edPub, err := auth.ParseEd25519PublicKeyFromPEM(pubBytes)
+		if err != nil {
+			logger.Error("parse jwt ed25519 pubkey failed", "err", err)
+			os.Exit(1)
+		}
+		keyFunc = auth.StaticKeyFunc(edPub)
+		alg = "EdDSA"
+	} else {
+		if rsPath == "" {
+			logger.Error("JWT_RS_PUBLIC_KEY not provided; JWT validation disabled")
+			os.Exit(1)
+		}
+		pubBytes, err := os.ReadFile(rsPath)
+		if err != nil {
+			logger.Error("read jwt rsa pubkey failed", "err", err)
+			os.Exit(1)
+		}
+		pubKey, err := auth.ParseRSAPublicKeyFromPEM(pubBytes)
+		if err != nil {
+			logger.Error("parse jwt rsa pubkey failed", "err", err)
+			os.Exit(1)
+		}
+		algEnv := os.Getenv("JWT_RS_ALG")
+		if algEnv == "" {
+			algEnv = "RS256"
+		}
+		if algEnv != "RS256" && algEnv != "RS512" {
+			logger.Error("unsupported JWT_RS_ALG (only RS256 or RS512)")
+			os.Exit(1)
+		}
+		keyFunc = auth.StaticKeyFunc(pubKey)
+		alg = algEnv
 	}
 	return auth.JWTValidator{
 		Issuer:     "securego",
 		Audiences:  []string{"securego-api"},
 		Algorithms: []string{alg},
-		KeyFunc:    auth.StaticKeyFunc(pubKey),
+		KeyFunc:    keyFunc,
 		ClockSkew:  30 * time.Second,
 	}
 }

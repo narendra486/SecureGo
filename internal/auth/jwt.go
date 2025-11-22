@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
@@ -75,7 +76,7 @@ func inSlice(val string, list []string) bool {
 	return false
 }
 
-// StaticKeyFunc returns a Keyfunc for HMAC/RS/ES keys.
+// StaticKeyFunc returns a Keyfunc for HMAC/RS/ES/Ed keys.
 func StaticKeyFunc(key any) jwt.Keyfunc {
 	return func(token *jwt.Token) (any, error) {
 		switch token.Method.(type) {
@@ -95,6 +96,12 @@ func StaticKeyFunc(key any) jwt.Keyfunc {
 			k, ok := key.(*ecdsa.PublicKey)
 			if !ok {
 				return nil, errors.New("expected ECDSA public key")
+			}
+			return k, nil
+		case *jwt.SigningMethodEd25519:
+			k, ok := key.(ed25519.PublicKey)
+			if !ok {
+				return nil, errors.New("expected ed25519 public key")
 			}
 			return k, nil
 		default:
@@ -135,4 +142,21 @@ func ParseRSAPublicKeyFromPEM(pemBytes []byte) (*rsa.PublicKey, error) {
 		return nil, errors.New("not an RSA public key")
 	}
 	return rsaPub, nil
+}
+
+// ParseEd25519PublicKeyFromPEM parses a PEM-encoded Ed25519 public key.
+func ParseEd25519PublicKeyFromPEM(pemBytes []byte) (ed25519.PublicKey, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("failed to decode PEM")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse ed25519 public key: %w", err)
+	}
+	edPub, ok := pub.(ed25519.PublicKey)
+	if !ok {
+		return nil, errors.New("not an ed25519 public key")
+	}
+	return edPub, nil
 }

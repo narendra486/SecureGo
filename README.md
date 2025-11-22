@@ -21,8 +21,7 @@ Environment knobs:
 - Middleware (`internal/middleware`): request IDs, panic recovery, body size limits, JSON-only enforcement, secure headers.
 - Auth/crypto (`internal/auth`, `internal/crypto`): argon2id password hashing, signed opaque tokens, AEAD helpers, HKDF derivation, random token utilities.
 - Auth protocols: RS256/RS512-only JWT validator with issuer/audience/alg whitelists, OAuth2 client helper, AEAD-backed session cookies, SAML validator skeleton with replay hook.
-- Validation (`internal/validation`): strict JSON decode, path traversal-safe joins.
-- Struct validation with go-playground/validator and DecodeAndValidate helper.
+- Input validation (`internal/inputvalidation`): strict JSON decode, path traversal-safe joins, validator tags, and field/path/URL/file checks.
 - Persistence helpers (`internal/persistence`): context deadlines and prepared statement enforcement.
 - Secrets/config (`internal/secrets`): env validation with fail-fast required keys.
 - Telemetry (`internal/telemetry`): UTC structured logging with redaction helpers.

@@ -6,7 +6,8 @@ High-level map of what lives where:
 - `internal/middleware/`: HTTP middleware (secure headers, panic recovery, body caps, CSRF, rate limiting, WAF hook, authZ scaffolds).
 - `internal/server/`: hardened HTTP server construction (timeouts/TLS).
 - `internal/auth/`: JWT validation, password KDFs, session cookies, opaque tokens, OAuth2 server scaffold, SAML skeleton.
-- `internal/validation/`: strict JSON decoding, validator tags, regex/allowlist/length, path/URL and file checks.
+- `internal/inputvalidation/`: strict JSON decoding, validator tags, regex/allowlist/length, path/URL checks.
+- `internal/filevalidation/`: multipart limits and upload checks (size/ext/MIME).
 - `internal/encoding/`: safe escaping helpers (HTML/attr/URL).
 - `internal/security/`: principal context helpers for consistent authZ decisions.
 - `internal/crypto/`: AEAD/SIV encryption, HKDF/HMAC, randoms, const-time compares.

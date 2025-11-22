@@ -23,11 +23,11 @@ This guide lists the key helpers and how to call them. No CI gates are enabled; 
 - Principal context: `ctx = security.WithPrincipal(ctx, security.Principal{ID, Roles}); p, ok := security.FromContext(ctx); security.HasRole(p,"admin")` for consistent decisions across layers.
 
 ## Input validation
-- JSON + struct tags: `var req T; err := validation.DecodeAndValidate(r.Body, &req, validation.NewValidator())` to reject unknown fields and enforce tags.
+- JSON + struct tags: `var req T; err := inputvalidation.DecodeAndValidate(r.Body, &req, inputvalidation.NewValidator())` to reject unknown fields and enforce tags.
 - Additional checks (validation helpers):
   - Strings: `ASCIIOnly`, `UTF8`, `LengthBetween`, `MatchesRegex(re)`, `InAllowlist`.
   - Paths/URLs: `SanitizePath(base, target)`, `ValidateURL(raw, allowedSchemes, allowedHosts)`.
-  - Files/forms: `ValidateMultipart` for size/count limits, `ValidateFileUpload` for size/ext/MIME allowlists.
+- Files/forms: use `filevalidation.ValidateMultipart` for size/count limits, `filevalidation.ValidateFileUpload` for size/ext/MIME allowlists, `filevalidation.SaveUploadedFile` / `ScanAndSave` for safe storage + AV hook, `filevalidation.ExtractZipSafe` for zip extraction with traversal/symlink checks, `filevalidation.SetDownloadHeaders` for safe downloads.
 
 ## Output encoding
 - JSON responses: `json.NewEncoder(w).Encode(data)` to avoid injection in JSON.

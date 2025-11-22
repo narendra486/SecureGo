@@ -5,3 +5,4 @@ Mitigates: ad-hoc role checks and drift; keeps identity consistent across layers
 
 - `WithPrincipal(ctx, Principal{ID, Roles})` to inject identity.
 - `FromContext(ctx)` to retrieve it; `HasRole(p, role)` to test roles.
+- Use with middleware policy hooks (`EnforcePolicy`, `RequireRole/Ownership`) to enforce RBAC/ABAC per action/resource.
