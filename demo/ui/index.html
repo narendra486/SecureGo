@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureGO Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 2rem auto; }
+    form { display: flex; flex-direction: column; gap: 0.5rem; }
+    input, button { padding: 0.5rem; }
+    pre { background: #f6f8fa; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>SecureGO Demo UI</h1>
+  <p>Demonstrates CSRF + session-safe requests against the SecureGO API via Caddy reverse proxy.</p>
+
+  <section>
+    <h2>1) Fetch CSRF Token</h2>
+    <button id="btn-csrf">Get CSRF</button>
+    <div>Token: <code id="csrf-token">(none)</code></div>
+  </section>
+
+  <section>
+    <h2>2) Create Session</h2>
+    <form id="session-form">
+      <button type="submit">Set Session Cookie</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>3) Check Session</h2>
+    <button id="btn-session-check">Check Session</button>
+  </section>
+
+  <section>
+    <h2>4) Get Signed Token</h2>
+    <button id="btn-token">Mint Token</button>
+  </section>
+
+  <section>
+    <h2>Response</h2>
+    <pre id="output">(none)</pre>
+  </section>
+
+  <script>
+    const output = document.getElementById('output');
+    const csrfEl = document.getElementById('csrf-token');
+    let csrfToken = '';
+
+    function log(obj) {
+      output.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    }
+
+    document.getElementById('btn-csrf').addEventListener('click', async () => {
+      const res = await fetch('/api/csrf', { credentials: 'include' });
+      const data = await res.json();
+      csrfToken = data.csrf_token || res.headers.get('X-CSRF-Token') || '';
+      csrfEl.textContent = csrfToken || '(none)';
+      log(data);
+    });
+
+    document.getElementById('session-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const res = await fetch('/api/session/set', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+        credentials: 'include'
+      });
+      log({ status: res.status, ok: res.ok });
+    });
+
+    document.getElementById('btn-session-check').addEventListener('click', async () => {
+      const res = await fetch('/api/session/check', { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      log({ status: res.status, data });
+    });
+
+    document.getElementById('btn-token').addEventListener('click', async () => {
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      log({ status: res.status, data });
+    });
+  </script>
+</body>
+</html>

@@ -70,3 +70,4 @@ Use this as a quick map of what each package does and which methods to call.
 - WAF sample: `configs/waf.conf` (include CRS paths).
 - Security coverage/checklists: `docs/security-coverage.md`, `docs/package-overview.md`, `docs/architecture-overview.md`, `docs/developer-usage.md`.
 - Regression plan: `test/regression/README.md`.
+- Demo environment: `demo/` (Dockerfile, compose, Caddyfile, simple UI) for local testing.
