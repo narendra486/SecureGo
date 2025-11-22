@@ -121,19 +121,13 @@
 
   <script>
     const bugs = [
-      { id: 'xss', name: 'XSS (reflected)', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)</script>
-  ', desc: 'Reflected input rendered without escaping.' },
-  { id: 'sqli', name: 'SQLi (boolean)', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc:
-  'User parameter concatenated into SQL.' },
-  { id: 'ssrf', name: 'SSRF', method: 'GET', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc:
-  'Unvalidated outbound fetch.' },
-  { id: 'path', name: 'Path Traversal', method: 'GET', path: '/path', param: 'file', payload: '../../../../etc/passwd',
-  desc: 'Reads arbitrary filesystem path.' },
-  { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc:
-  'Shell exec with untrusted input.' },
-  { id: 'upload', name: 'Upload (no validation)', method: 'POST', path: '/upload', payload: 'sample.txt', desc: 'Uploads
-  without size/ext/MIME checks.' }
-  ];
+      { id: 'xss', name: 'XSS (reflected)', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
+      { id: 'sqli', name: 'SQLi (boolean)', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
+      { id: 'ssrf', name: 'SSRF', method: 'GET', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
+      { id: 'path', name: 'Path Traversal', method: 'GET', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
+      { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
+      { id: 'upload', name: 'Upload (no validation)', method: 'POST', path: '/upload', payload: 'sample.txt', desc: 'Uploads without size/ext/MIME checks.' }
+    ];
 
   const bugSelect = document.getElementById('bug');
   const targetSelect = document.getElementById('target');
