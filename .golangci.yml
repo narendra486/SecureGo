@@ -1,0 +1,24 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gofmt
+    - gosimple
+    - govulncheck
+    - gosec
+    - bodyclose
+    - ineffassign
+    - errcheck
+    - dupl
+    - revive
+  disable-all: false
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+gosec:
+  excludes:
+    - G404 # math/rand not used

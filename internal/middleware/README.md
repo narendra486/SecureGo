@@ -1,0 +1,22 @@
+- # middleware
+- How it works: wrappers around your HTTP handlers to add security checks before your code runs.
+- When to use: wrap every route with the baseline, then add CSRF/rate limits/WAF/authZ based on the endpoint.
+- What it mitigates: request smuggling of large bodies, header abuse, missing headers, CSRF, brute force/DoS, basic authZ gaps.
+
+## Components
+- Baseline
+  - `SecurityHeaders`: sets HSTS (when HTTPS), CSP baseline, nosniff, frame deny, referrer/permissions policy to reduce XSS/clickjacking.
+  - `RequestID`: injects correlation IDs so you can trace requests.
+  - `Recovery`: catches panics and returns safe 500 responses to avoid leaking stack traces.
+  - `BodyLimit(maxBytes)`: caps payload size to avoid memory/DoS.
+- CSRF
+  - `NewCSRF(cfg)` + `EnsureCSRF`/`Middleware`: double-submit cookie + header; blocks state-changing requests without matching token.
+  - Use on any cookie-authenticated POST/PUT/PATCH/DELETE route.
+- Rate limiting
+  - `NewIPRateLimit` or `NewKeyRateLimit` + `Middleware`: token bucket to throttle abusive clients (IP or user key).
+- WAF
+  - `NewWAF(directives)` + `Middleware`: runs Coraza rules (e.g., CRS) to block common injection/XSS/Traversal payloads.
+- AuthZ scaffolds
+  - `RequireRole`, `RequireOwnership`: simple gates; plug in your role/ownership checker to enforce least privilege.
+- Utility
+  - `IPFromRequest`: extracts client IP for logging/limits.
