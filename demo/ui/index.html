@@ -3,87 +3,141 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SecureGO Demo</title>
+  <title>SecureGO Lab Console</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 2rem auto; }
-    form { display: flex; flex-direction: column; gap: 0.5rem; }
-    input, button { padding: 0.5rem; }
-    pre { background: #f6f8fa; padding: 1rem; }
+    :root { color-scheme: light; }
+    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+    header { display: flex; justify-content: space-between; align-items: center; }
+    select, input, button, textarea { padding: 0.5rem; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+    pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow: auto; min-height: 200px; }
+    label { font-weight: bold; display: block; margin-bottom: 0.25rem; }
+    small { color: #666; }
+    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
-  <h1>SecureGO Demo UI</h1>
-  <p>Demonstrates CSRF + session-safe requests against the SecureGO API via Caddy reverse proxy.</p>
+  <header>
+    <div>
+      <h1>SecureGO Lab Console</h1>
+      <p>Pick a vulnerability test, target (SecureGO or Vuln-Go), tweak payloads, and view request/response like a mini Repeater.</p>
+    </div>
+  </header>
 
-  <section>
-    <h2>1) Fetch CSRF Token</h2>
-    <button id="btn-csrf">Get CSRF</button>
-    <div>Token: <code id="csrf-token">(none)</code></div>
-  </section>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="bug">Vulnerability</label>
+        <select id="bug"></select>
+      </div>
+      <div>
+        <label for="target">Target</label>
+        <select id="target">
+          <option value="/api">SecureGO API (proxy)</option>
+          <option value="/vuln">Vuln-Go (proxy)</option>
+          <option value="custom">Custom base URL</option>
+        </select>
+      </div>
+      <div id="custom-base-wrap" class="row" style="flex:1; display:none;">
+        <label for="custom-base">Base URL</label>
+        <input id="custom-base" style="min-width: 250px;" placeholder="http://localhost:8080/vuln">
+      </div>
+    </div>
+    <div class="row" style="margin-top:0.5rem;">
+      <label for="payload">Payload</label>
+      <input id="payload" style="flex:1;" />
+      <button id="send">Send</button>
+    </div>
+    <small id="bug-desc"></small>
+  </div>
 
-  <section>
-    <h2>2) Create Session</h2>
-    <form id="session-form">
-      <button type="submit">Set Session Cookie</button>
-    </form>
-  </section>
-
-  <section>
-    <h2>3) Check Session</h2>
-    <button id="btn-session-check">Check Session</button>
-  </section>
-
-  <section>
-    <h2>4) Get Signed Token</h2>
-    <button id="btn-token">Mint Token</button>
-  </section>
-
-  <section>
-    <h2>Response</h2>
-    <pre id="output">(none)</pre>
-  </section>
+  <div class="grid" style="margin-top:1rem;">
+    <div class="card">
+      <h3>Request</h3>
+      <pre id="req-view">(none)</pre>
+    </div>
+    <div class="card">
+      <h3>Response</h3>
+      <pre id="res-view">(none)</pre>
+    </div>
+  </div>
 
   <script>
-    const output = document.getElementById('output');
-    const csrfEl = document.getElementById('csrf-token');
-    let csrfToken = '';
+    const bugs = [
+      { id: 'xss', name: 'XSS (reflected)', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)</script>', desc: 'Reflected input rendered without escaping.' },
+      { id: 'sqli', name: 'SQLi (boolean)', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
+      { id: 'ssrf', name: 'SSRF', method: 'GET', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
+      { id: 'path', name: 'Path Traversal', method: 'GET', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
+      { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
+      { id: 'upload', name: 'Upload (no validation)', method: 'POST', path: '/upload', payload: 'sample.txt', desc: 'Uploads without size/ext/MIME checks.' }
+    ];
 
-    function log(obj) {
-      output.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    const bugSelect = document.getElementById('bug');
+    const targetSelect = document.getElementById('target');
+    const customBaseWrap = document.getElementById('custom-base-wrap');
+    const customBaseInput = document.getElementById('custom-base');
+    const payloadInput = document.getElementById('payload');
+    const descEl = document.getElementById('bug-desc');
+    const reqView = document.getElementById('req-view');
+    const resView = document.getElementById('res-view');
+
+    bugs.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = b.name;
+      bugSelect.appendChild(opt);
+    });
+
+    function currentBug() {
+      return bugs.find(b => b.id === bugSelect.value) || bugs[0];
     }
 
-    document.getElementById('btn-csrf').addEventListener('click', async () => {
-      const res = await fetch('/api/csrf', { credentials: 'include' });
-      const data = await res.json();
-      csrfToken = data.csrf_token || res.headers.get('X-CSRF-Token') || '';
-      csrfEl.textContent = csrfToken || '(none)';
-      log(data);
-    });
+    function updateUI() {
+      const bug = currentBug();
+      payloadInput.value = bug.payload;
+      descEl.textContent = bug.desc;
+      customBaseWrap.style.display = targetSelect.value === 'custom' ? 'flex' : 'none';
+    }
 
-    document.getElementById('session-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const res = await fetch('/api/session/set', {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': csrfToken },
-        credentials: 'include'
-      });
-      log({ status: res.status, ok: res.ok });
-    });
+    bugSelect.addEventListener('change', updateUI);
+    targetSelect.addEventListener('change', updateUI);
+    updateUI();
 
-    document.getElementById('btn-session-check').addEventListener('click', async () => {
-      const res = await fetch('/api/session/check', { credentials: 'include' });
-      const data = await res.json().catch(() => ({}));
-      log({ status: res.status, data });
-    });
+    document.getElementById('send').addEventListener('click', async () => {
+      const bug = currentBug();
+      const base = targetSelect.value === 'custom' ? customBaseInput.value.trim() : targetSelect.value;
+      if (!base) {
+        alert('Provide base URL');
+        return;
+      }
+      let url = base + bug.path;
+      const headers = {};
+      let body;
+      let method = bug.method;
 
-    document.getElementById('btn-token').addEventListener('click', async () => {
-      const res = await fetch('/api/token', {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': csrfToken },
-        credentials: 'include'
-      });
-      const data = await res.json().catch(() => ({}));
-      log({ status: res.status, data });
+      if (bug.id === 'upload') {
+        const form = new FormData();
+        form.append('file', new Blob(['sample upload'], { type: 'text/plain' }), payloadInput.value || 'sample.txt');
+        body = form;
+        headers['X-CSRF-Token'] = ''; // set if needed for SecureGO
+      } else {
+        const params = new URLSearchParams();
+        params.set(bug.param, payloadInput.value);
+        url += '?' + params.toString();
+      }
+
+      const reqPreview = { method, url, headers: headers, body: bug.id === 'upload' ? '(multipart form)' : null };
+      reqView.textContent = JSON.stringify(reqPreview, null, 2);
+
+      try {
+        const res = await fetch(url, { method, headers, body, credentials: 'include' });
+        const text = await res.text();
+        const resPreview = { status: res.status, headers: Object.fromEntries(res.headers.entries()), body: text };
+        resView.textContent = JSON.stringify(resPreview, null, 2);
+      } catch (e) {
+        resView.textContent = `Error: ${e}`;
+      }
     });
   </script>
 </body>

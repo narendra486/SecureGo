@@ -16,7 +16,7 @@ docker compose up --build
 
 - UI: http://localhost:8080
 - API: proxied via Caddy at `/api/*` (upstream on api:8443, HTTP by default)
-- Vuln UI: http://localhost:8081 (links to DSVW via `/dsvw` proxy)
+- Use the single UI at http://localhost:8080 to target either SecureGO (`/api`) or the Vuln-Go app (`/vuln`).
 
 ## What the UI does
 - Fetch CSRF token (`/api/csrf`) and store it.
@@ -30,6 +30,5 @@ docker compose up --build
 - Keep this demo separate from production; it is for local testing only.
 
 ## Vulnerable app (Go)
-- Included via `vuln-go` service and `vuln-ui` (Caddy reverse proxy).
-- Visit http://localhost:8081 to login to the test UI and click vulnerability links (XSS, SQLi, SSRF, traversal, cmd injection, upload).
-- Use these payloads to confirm SecureGO endpoints block the same attacks.
+- Included via `vuln-go` service; proxied in Caddy at `/vuln*`.
+- Use the UI at http://localhost:8080 to run XSS, SQLi, SSRF, traversal, command injection, and upload payloads against `vuln-go`, then replay against SecureGO to confirm they’re blocked.
