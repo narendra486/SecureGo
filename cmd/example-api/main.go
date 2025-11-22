@@ -134,7 +134,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
+		json.NewEncoder(w).Encode(map[string]string{"csrf_token": token})
 	})
 
 	if gqlHandler, err := graphqlapi.NewHandler(graphqlapi.DefaultConfig()); err == nil {

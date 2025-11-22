@@ -60,8 +60,8 @@ func (s *SessionCodec) Set(w http.ResponseWriter, value []byte) error {
 		Value:    encoded,
 		Path:     s.Path,
 		Domain:   s.Domain,
-		Secure:   s.Secure,
-		HttpOnly: s.HTTPOnly,
+		Secure:   true,
+		HttpOnly: true,
 		SameSite: s.SameSite,
 		MaxAge:   int(s.MaxAge.Seconds()),
 	}
@@ -77,8 +77,8 @@ func (s *SessionCodec) Clear(w http.ResponseWriter) {
 		Path:     s.Path,
 		Domain:   s.Domain,
 		MaxAge:   -1,
-		Secure:   s.Secure,
-		HttpOnly: s.HTTPOnly,
+		Secure:   true,
+		HttpOnly: true,
 		SameSite: s.SameSite,
 	}
 	http.SetCookie(w, c)

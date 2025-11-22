@@ -99,8 +99,8 @@ func (c *CSRFMiddleware) IssueToken(w http.ResponseWriter) (string, error) {
 		Path:     c.cfg.Path,
 		Domain:   c.cfg.Domain,
 		MaxAge:   int(c.cfg.MaxAge.Seconds()),
-		Secure:   c.cfg.Secure,
-		HttpOnly: c.cfg.HTTPOnly,
+		Secure:   true,
+		HttpOnly: true,
 		SameSite: c.cfg.SameSite,
 	})
 	return token, nil

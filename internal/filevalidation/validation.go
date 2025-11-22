@@ -136,10 +136,14 @@ func ExtractZipSafe(zipPath, destDir string, maxTotalBytes int64) error {
 			rc.Close()
 			return fmt.Errorf("create entry: %w", err)
 		}
-		written, err := io.Copy(dst, rc)
+		limit := int64(^uint64(0) >> 1)
+		if maxTotalBytes > 0 {
+			limit = maxTotalBytes - total
+		}
+		written, err := io.CopyN(dst, rc, limit)
 		rc.Close()
 		dst.Close()
-		if err != nil {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("copy entry: %w", err)
 		}
 		total += written
