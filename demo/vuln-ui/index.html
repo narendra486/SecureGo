@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vuln Playground (DSVW)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; line-height: 1.4; }
+    .hidden { display: none; }
+    button, input { padding: 0.5rem; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 0.25rem 0; }
+    a { color: #0a58ca; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Vuln Playground</h1>
+  <p>Login to access test links for DSVW (Damn Small Vulnerable Web).</p>
+
+  <div id="login">
+    <input id="user" placeholder="username" value="tester">
+    <input id="pass" type="password" placeholder="password" value="password">
+    <button id="btn-login">Login</button>
+  </div>
+
+  <div id="welcome" class="hidden">
+    <p>Welcome, <span id="who"></span>. Click a test to open the Go vulnerable app via the reverse proxy.</p>
+    <ul>
+      <li><a href="/vuln" target="_blank">Home</a></li>
+      <li><a href="/vuln/xss?input=%3Cscript%3Ealert(1)%3C/script%3E" target="_blank">XSS</a></li>
+      <li><a href="/vuln/sqli?user=admin' OR 1=1 --" target="_blank">SQLi</a></li>
+      <li><a href="/vuln/ssrf?url=http://127.0.0.1:22" target="_blank">SSRF</a></li>
+      <li><a href="/vuln/path?file=../../../../etc/passwd" target="_blank">Path traversal</a></li>
+      <li><a href="/vuln/cmd?host=127.0.0.1;ls" target="_blank">Command injection</a></li>
+      <li><a href="/vuln/upload" target="_blank">Upload</a></li>
+    </ul>
+    <p>Use these endpoints to replay payloads against your SecureGO API and ensure they’re blocked.</p>
+  </div>
+
+  <script>
+    const loginDiv = document.getElementById('login');
+    const welcomeDiv = document.getElementById('welcome');
+    const who = document.getElementById('who');
+    document.getElementById('btn-login').addEventListener('click', () => {
+      // simple client-side "login" for demo only
+      const u = document.getElementById('user').value || 'tester';
+      who.textContent = u;
+      loginDiv.classList.add('hidden');
+      welcomeDiv.classList.remove('hidden');
+    });
+  </script>
+</body>
+</html>

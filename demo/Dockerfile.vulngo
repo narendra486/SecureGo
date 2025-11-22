@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.24-alpine AS build
+WORKDIR /app
+COPY demo/vuln-go/go.mod demo/vuln-go/go.sum ./ 
+RUN go mod download
+COPY demo/vuln-go/ .
+RUN go build -o /vuln-go
+
+FROM gcr.io/distroless/base-debian12
+COPY --from=build /vuln-go /vuln-go
+EXPOSE 8080
+ENTRYPOINT ["/vuln-go"]

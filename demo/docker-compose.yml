@@ -29,5 +29,26 @@ services:
     networks:
       - testnet
 
+  vuln-go:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile.vulngo
+    expose:
+      - "8080"
+    networks:
+      - testnet
+
+  vuln-ui:
+    image: caddy:2
+    volumes:
+      - ./vuln-ui:/usr/share/caddy
+      - ./Caddyfile.vuln:/etc/caddy/Caddyfile
+    ports:
+      - "8081:80"
+    depends_on:
+      - vuln-go
+    networks:
+      - testnet
+
 networks:
   testnet: {}
