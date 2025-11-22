@@ -1,112 +1,28 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SecureGO Lab Console</title>
   <style>
-    :root {
-      color-scheme: light;
-    }
-
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 1000px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    select,
-    input,
-    button,
-    textarea {
-      padding: 0.5rem;
-      font-size: 14px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
-
-    .card {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 1rem;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    }
-
-    pre {
-      background: #f6f8fa;
-      color: #24292e;
-      padding: 1rem;
-      border-radius: 6px;
-      border: 1px solid #e0e0e0;
-      overflow: auto;
-      min-height: 200px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    label {
-      font-weight: bold;
-      display: block;
-      margin-bottom: 0.25rem;
-    }
-
-    small {
-      color: #666;
-    }
-
-    .row {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .hl-bad {
-      background: #ffe3e3;
-      color: #8b0000;
-      padding: 2px 4px;
-      border-radius: 3px;
-    }
-
-    .hl-good {
-      background: #e2fbe2;
-      color: #0a5a0a;
-      padding: 2px 4px;
-      border-radius: 3px;
-    }
-
-    .code-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      margin-top: 1rem;
-    }
+    :root { color-scheme: light; }
+    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+    header { display: flex; justify-content: space-between; align-items: center; }
+    select, input, button, textarea { padding: 0.5rem; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05); }
+    pre { background: #f6f8fa; color: #24292e; padding: 1rem; border-radius: 6px; border: 1px solid #e0e0e0; overflow: auto; min-height: 200px; white-space: pre-wrap; word-break: break-word; }
+    textarea { width: 100%; box-sizing: border-box; }
+    label { font-weight: bold; display: block; margin-bottom: 0.25rem; }
+    small { color: #666; }
+    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   </style>
 </head>
-
 <body>
   <header>
     <div>
       <h1>SecureGO Lab Console</h1>
-      <p>Pick a vulnerability test, target (SecureGO or Vuln-Go), tweak payloads, and view request/response like a mini
-        Repeater.</p>
+      <p>Pick a vulnerability test, target (SecureGo or VulnGo), tweak payloads, and view request/response like a mini Repeater.</p>
     </div>
   </header>
 
@@ -145,11 +61,14 @@
 
   <script>
     const bugs = [
-      { id: 'xss', name: 'XSS', method: 'GET', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
-      { id: 'sqli', name: 'SQLi', method: 'GET', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
-      { id: 'ssrf', name: 'SSRF', method: 'GET', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
-      { id: 'path', name: 'Path Traversal', method: 'GET', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
-      { id: 'cmd', name: 'Command Injection', method: 'GET', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' }
+      { id: 'xss', name: 'XSS', method: 'POST', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
+      { id: 'sqli', name: 'SQLi', method: 'POST', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
+      { id: 'ssrf', name: 'SSRF', method: 'POST', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
+      { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
+      { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
+      { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'alice', desc: 'No authz check on user resource.' },
+      { id: 'oauth-token', name: 'OAuth Weak Token', method: 'POST', path: '/oauth/token', param: 'user', payload: 'alice', desc: 'Mints HS256 token with weak secret, no client auth.' },
+      { id: 'oauth-validate', name: 'OAuth No Sig Check', method: 'POST', path: '/oauth/validate', param: 'token', payload: 'paste-token-here', desc: 'Accepts token without verifying signature.' }
     ];
 
     const bugSelect = document.getElementById('bug');
@@ -158,8 +77,6 @@
     const descEl = document.getElementById('bug-desc');
     const reqView = document.getElementById('req-view');
     const resView = document.getElementById('res-view');
-    const codeInsecure = document.getElementById('code-insecure');
-    const codeSecure = document.getElementById('code-secure');
 
     bugs.forEach(b => {
       const opt = document.createElement('option');
@@ -167,35 +84,16 @@
       opt.textContent = b.name;
       bugSelect.appendChild(opt);
     });
+    if (bugs.length) bugSelect.value = bugs[0].id;
 
     function currentBug() {
       return bugs.find(b => b.id === bugSelect.value) || bugs[0];
-    }
-
-    function escapeHtml(str) {
-      return (str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
-
-    function highlight(code, payload, cls) {
-      const escapedCode = escapeHtml(code || '');
-      if (!payload) return escapedCode;
-      const escPayload = escapeHtml(payload);
-      return escapedCode.split(escPayload).join(`<span class="${cls}">${escPayload}</span>`);
     }
 
     function updateUI() {
       const bug = currentBug();
       payloadInput.value = bug.payload;
       descEl.textContent = bug.desc;
-      const payloadVal = payloadInput.value;
-      codeInsecure.innerHTML = [
-        '// Insecure source -> sink',
-        highlight(bug.insecure, payloadVal, 'hl-bad')
-      ].join('\n');
-      codeSecure.innerHTML = [
-        '// Secure source -> sink',
-        highlight(bug.secure, payloadVal, 'hl-good')
-      ].join('\n');
     }
 
     bugSelect.addEventListener('change', updateUI);
@@ -204,40 +102,40 @@
 
     document.getElementById('send').addEventListener('click', async () => {
       const bug = currentBug();
-      const base = targetSelect.value === 'custom' ? customBaseInput.value.trim() : targetSelect.value;
-      if (!base) {
-        alert('Provide base URL');
-        return;
-      }
+      const base = targetSelect.value;
       let url = base + bug.path;
       const headers = {};
-      let body;
-      let method = bug.method;
+      const method = bug.method;
 
-      if (bug.id === 'upload') {
-        const form = new FormData();
-        form.append('file', new Blob(['sample upload'], { type: 'text/plain' }), payloadInput.value || 'sample.txt');
-        body = form;
-        headers['X-CSRF-Token'] = ''; // set if needed for SecureGO
-      } else {
-        const params = new URLSearchParams();
-        params.set(bug.param, payloadInput.value);
-        url += '?' + params.toString();
+      let bodyText = '';
+      if (bug.param) {
+        // Build a raw application/x-www-form-urlencoded body without encoding the payload.
+        bodyText = `${bug.param}=${payloadInput.value}`;
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
       }
 
-      const reqPreview = { method, url, headers: headers, body: bug.id === 'upload' ? '(multipart form)' : null };
-      reqView.textContent = JSON.stringify(reqPreview, null, 2);
+      // Raw HTTP-style request preview
+      const urlObj = new URL(url, window.location.origin);
+      const reqLines = [`${method} ${urlObj.pathname}${urlObj.search} HTTP/1.1`, `Host: ${urlObj.host || window.location.host}`];
+      Object.entries(headers).forEach(([k, v]) => reqLines.push(`${k}: ${v}`));
+      if (bodyText) {
+        reqLines.push('');
+        reqLines.push(bodyText);
+      }
+      reqView.textContent = reqLines.join('\n');
 
       try {
-        const res = await fetch(url, { method, headers, body, credentials: 'include' });
+        const res = await fetch(url, { method, headers, credentials: 'include', body: bodyText || null });
         const text = await res.text();
-        const resPreview = { status: res.status, headers: Object.fromEntries(res.headers.entries()), body: text };
-        resView.textContent = JSON.stringify(resPreview, null, 2);
+        const resLines = [`HTTP/1.1 ${res.status} ${res.statusText}`];
+        res.headers.forEach((value, key) => resLines.push(`${key}: ${value}`));
+        resLines.push('');
+        resLines.push(text);
+        resView.textContent = resLines.join('\n');
       } catch (e) {
         resView.textContent = `Error: ${e}`;
       }
     });
   </script>
 </body>
-
 </html>

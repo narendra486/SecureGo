@@ -5,23 +5,36 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
+	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 // WARNING: This server is intentionally vulnerable for testing.
 func main() {
-	users := []struct {
+	type profile struct {
 		ID       int
 		Username string
 		Password string
-	}{
-		{1, "admin", "secret"},
-		{2, "user", "password"},
+		Email    string
+		Balance  int
+		Role     string
 	}
+	users := []profile{
+		{1, "admin", "secret", "admin@example.com", 100000, "admin"},
+		{2, "user", "password", "user@example.com", 250, "user"},
+		{3, "alice", "alicepwd", "alice@example.com", 500, "user"},
+	}
+	userByName := map[string]profile{}
+	for _, u := range users {
+		userByName[u.Username] = u
+	}
+
+	const insecureJWTSecret = "insecure-secret"
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Vuln-Go: intentionally insecure demo. Endpoints: /xss?input=, /sqli?user=, /path?file=, /ssrf?url=, /cmd?host=, /upload (POST file)")
+		fmt.Fprintln(w, "Vuln-Go: intentionally insecure demo. Endpoints: /xss?input=, /sqli?user=, /path?file=, /ssrf?url=, /cmd?host=, /idor?user=, /oauth/token?user=, /oauth/validate?token=")
 	})
 
 	// Reflected XSS
@@ -74,27 +87,47 @@ func main() {
 		w.Write(out)
 	})
 
-	// Upload (no validation)
-	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			fmt.Fprintln(w, `<form method="POST" enctype="multipart/form-data"><input type="file" name="file"/><input type="submit"/></form>`)
+	// IDOR: no authz check, returns any user profile by query param.
+	http.HandleFunc("/idor", func(w http.ResponseWriter, r *http.Request) {
+		username := r.URL.Query().Get("user")
+		u, ok := userByName[username]
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		fmt.Fprintf(w, "user=%s,email=%s,balance=%d,role=%s\n", u.Username, u.Email, u.Balance, u.Role)
+	})
+
+	// Insecure OAuth-like token mint: no client validation, weak HS256 secret.
+	http.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		user := r.URL.Query().Get("user")
+		if user == "" {
+			user = "guest"
+		}
+		scope := r.URL.Query().Get("scope")
+		claims := jwt.MapClaims{
+			"sub":   user,
+			"scope": scope,
+			"iss":   "vulngo",
+			"exp":   time.Now().Add(2 * time.Hour).Unix(),
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, _ := token.SignedString([]byte(insecureJWTSecret))
+		fmt.Fprintf(w, `{"access_token":"%s","token_type":"bearer","expires_in":7200}`, signed)
+	})
+
+	// Insecure token "validation": parses without signature verification.
+	http.HandleFunc("/oauth/validate", func(w http.ResponseWriter, r *http.Request) {
+		raw := r.URL.Query().Get("token")
+		if raw == "" {
+			raw = r.Header.Get("Authorization")
+		}
+		if raw == "" {
+			http.Error(w, "token required", http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
-		dst := filepath.Join(os.TempDir(), header.Filename)
-		out, err := os.Create(dst)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer out.Close()
-		io.Copy(out, file)
-		fmt.Fprintf(w, "saved to %s\n", dst)
+		tok, _ := jwt.Parse(raw, nil, jwt.WithoutClaimsValidation())
+		fmt.Fprintf(w, "token accepted: %v\n", tok.Claims)
 	})
 
 	log.Println("Vuln-Go running on :8080")
