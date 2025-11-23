@@ -85,18 +85,6 @@
       width: 100%;
     }
 
-    .login-row {
-      display: flex;
-      justify-content: flex-end;
-      gap: 0.5rem;
-      align-items: center;
-      margin-top: 0.5rem;
-      flex-wrap: wrap;
-    }
-
-    .login-row small {
-      color: #555;
-    }
   </style>
 </head>
 
@@ -109,7 +97,7 @@
   </header>
 
   <div class="card">
-    <div class="row">
+    <div class="row" style="align-items: flex-end; justify-content: space-between; gap: 1rem;">
       <div>
         <label for="bug">Vulnerability</label>
         <select id="bug"></select>
@@ -121,11 +109,11 @@
           <option value="/vuln">VulnGo</option>
         </select>
       </div>
-    </div>
-    <div class="login-row">
-      <input id="login-username" type="text" value="user1334" aria-label="username" />
-      <button id="login-btn" type="button">Login</button>
-      <small id="login-status">Not logged in</small>
+      <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap; margin-left:auto;">
+        <input id="login-username" type="text" value="user1334" aria-label="username" />
+        <button id="login-btn" type="button">Login</button>
+        <small id="login-status">Not logged in</small>
+      </div>
     </div>
     <div class="row" style="margin-top:0.5rem;">
       <label for="payload">Payload</label>
@@ -164,6 +152,8 @@
       { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'A protection mechanism preventing attackers from triggering user actions. The secure route requires a valid anti-CSRF token; the vulnerable route does not.' },
       { id: 'jwt-mint', name: 'JWT Token', method: 'POST', path: '/jwt/mint', param: 'username', payload: 'user1334', desc: 'Issues a signed JWT for the subject provided. Useful for demonstrating how tokens and claims are created.' },
       { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Checks whether a submitted JWT is valid—verifying signature, issuer, audience, and expiry.' },
+      { id: 'error', name: 'Error Handling', method: 'POST', path: '/error', param: 'cause', payload: 'panic', desc: 'Error handling: vulnerable route leaks stack traces; secure route returns a generic error.' },
+      { id: 'graphql', name: 'GraphQL Introspection', method: 'POST', path: '/graphql', param: null, payload: '{"query":"{ __schema { queryType { name } } }"}', json: true, desc: 'GraphQL introspection check; secure handler should reject or limit schema leakage.' },
       { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Shows browser-hardening headers added by middleware, such as CSP, HSTS, and X-Frame-Options.' }
     ];
 
@@ -237,7 +227,7 @@
       loginStatus.textContent = 'Logging in...';
       try {
         const token = await ensureCsrfToken('/secure');
-        const res = await fetch('/secure/jwt/mint', {
+        const reqHeaders = {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -245,13 +235,28 @@
           },
           credentials: 'include',
           body: 'username=' + encodeURIComponent(username)
-        });
+        };
+        const res = await fetch('/secure/jwt/mint', reqHeaders);
+        const reqLines = [
+          'POST /secure/jwt/mint HTTP/1.1',
+          'Host: ' + window.location.host,
+          'Content-Type: application/x-www-form-urlencoded',
+          token ? 'X-CSRF-Token: ' + token : '',
+          '',
+          'username=' + encodeURIComponent(username)
+        ].filter(Boolean);
+        reqView.textContent = reqLines.join('\n');
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.token) {
           throw new Error(data.error || 'login failed');
         }
         jwtToken = data.token;
         loginStatus.textContent = `Logged in as ${username}`;
+        const resLines = ["HTTP/1.1 " + res.status + " " + res.statusText];
+        res.headers.forEach((value, key) => resLines.push(key + ": " + value));
+        resLines.push('');
+        resLines.push(JSON.stringify(data, null, 2));
+        resView.textContent = resLines.join('\n');
         if (currentBug().id === 'jwt-validate') {
           payloadInput.value = jwtToken;
         }
@@ -285,8 +290,14 @@
       }
 
       let bodyText = '';
-      if (bug.param) {
+      let fetchBody = null;
+      if (bug.json) {
+        bodyText = payloadInput.value;
+        fetchBody = bodyText;
+        headers['Content-Type'] = 'application/json';
+      } else if (bug.param) {
         bodyText = bug.param + '=' + payloadInput.value;
+        fetchBody = bodyText;
         headers['Content-Type'] = 'application/x-www-form-urlencoded';
       }
 
@@ -300,7 +311,7 @@
       reqView.textContent = reqLines.join('\n');
 
       try {
-        const res = await fetch(url, { method, headers, credentials: 'include', body: bodyText || null });
+        const res = await fetch(url, { method, headers, credentials: 'include', body: fetchBody });
         const text = await res.text();
         const resToken = res.headers.get('X-CSRF-Token');
         if (resToken) csrfToken = resToken;

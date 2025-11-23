@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -190,6 +191,15 @@ func main() {
 		fmt.Fprint(w, "Security headers applied. Inspect the response headers.")
 	}))
 
+	mux.HandleFunc("/secure/error", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		cause := r.FormValue("cause")
+		if cause == "panic" {
+			// Let recovery middleware return a generic 500 without stack leakage.
+			panic("demo panic")
+		}
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+	}))
+
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
 	mux.Handle("/secure/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		gqlHandler.ServeHTTP(w, r)
@@ -307,6 +317,17 @@ func main() {
 		}
 		tok, _ := jwt.Parse(raw, auth.StaticKeyFunc(&jwtKey.PublicKey), jwt.WithoutClaimsValidation(), jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
 		fmt.Fprintf(w, "token accepted (claims not validated, RS256 only): %v\n", tok.Claims)
+	})
+	mux.HandleFunc("/vuln/error", func(w http.ResponseWriter, r *http.Request) {
+		cause := r.FormValue("cause")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		if cause == "panic" {
+			w.Write([]byte("panic: demo panic\n"))
+		} else {
+			w.Write([]byte("error: something went wrong\n"))
+		}
+		w.Write(debug.Stack())
 	})
 	mux.HandleFunc("/vuln/csrf", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"csrf_token":"static-weak-token"}`)
