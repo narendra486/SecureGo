@@ -26,7 +26,6 @@ import (
 	"Securego/internal/persistence"
 	"Securego/internal/secrets"
 	"Securego/internal/telemetry"
-	"Securego/pkg/sandbox"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	_ "github.com/mattn/go-sqlite3"
@@ -123,29 +122,8 @@ func main() {
 	}))
 
 	mux.HandleFunc("/api/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
-		host := r.FormValue("host")
-		hostRe := regexp.MustCompile(`^[a-zA-Z0-9.:-]+$`)
-		if err := inputvalidation.MatchesRegex(host, hostRe); err != nil {
-			http.Error(w, "invalid host", http.StatusBadRequest)
-			return
-		}
-		runner := sandbox.CommandRunner{
-			AllowedDirs: []string{"/bin", "/sbin", "/usr/bin", "/usr/sbin"},
-			AllowedBins: []string{"ping"},
-			Timeout:     3 * time.Second,
-			ArgsValidator: func(args []string) bool {
-				if len(args) != 3 {
-					return false
-				}
-				return regexp.MustCompile(`^[a-zA-Z0-9.:-]+$`).MatchString(args[2])
-			},
-		}
-		out, err := runner.Run(r.Context(), "/bin/ping", "-c", "1", host)
-		if err != nil {
-			http.Error(w, "blocked: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Write(out)
+		// Secure variant disables command execution entirely.
+		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
 
 	mux.HandleFunc("/api/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
