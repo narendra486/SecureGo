@@ -12,8 +12,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -29,6 +31,11 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	_ "github.com/mattn/go-sqlite3"
+)
+
+var (
+	allowedIdent = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	allowedHost  = regexp.MustCompile(`^[A-Za-z0-9\.-:]+$`)
 )
 
 // Demo server with secure (/secure) and vulnerable (/vuln) routes.
@@ -83,6 +90,10 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
+		if err := inputvalidation.MatchesRegex(user, allowedIdent); err != nil {
+			http.Error(w, "invalid user characters", http.StatusBadRequest)
+			return
+		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
 	}))
 
@@ -90,6 +101,10 @@ func main() {
 		user := r.FormValue("user")
 		if err := inputvalidation.LengthBetween(user, 3, 32); err != nil {
 			http.Error(w, "invalid user", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.MatchesRegex(user, allowedIdent); err != nil {
+			http.Error(w, "invalid user characters", http.StatusBadRequest)
 			return
 		}
 		var balance int
@@ -102,6 +117,15 @@ func main() {
 
 	mux.HandleFunc("/secure/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		raw := r.FormValue("url")
+		if err := inputvalidation.ValidateURL(raw, []string{"http", "https"}, nil); err != nil {
+			http.Error(w, "invalid url", http.StatusBadRequest)
+			return
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Hostname() == "" {
+			http.Error(w, "invalid url host", http.StatusBadRequest)
+			return
+		}
 		client := httpclient.New()
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, raw, nil)
 		if err != nil {
@@ -145,6 +169,10 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
+		if err := inputvalidation.MatchesRegex(host, allowedHost); err != nil {
+			http.Error(w, "invalid host characters", http.StatusBadRequest)
+			return
+		}
 		// Secure variant disables command execution entirely.
 		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
@@ -157,6 +185,10 @@ func main() {
 		}
 		if err := inputvalidation.UTF8(resource); err != nil {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.MatchesRegex(resource, allowedIdent); err != nil {
+			http.Error(w, "invalid user characters", http.StatusBadRequest)
 			return
 		}
 		if resource == "" {
@@ -188,6 +220,18 @@ func main() {
 		if sub == "" {
 			sub = "guest"
 		}
+		if err := inputvalidation.LengthBetween(sub, 1, 128); err != nil {
+			http.Error(w, "invalid username", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(sub); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.MatchesRegex(sub, allowedIdent); err != nil {
+			http.Error(w, "invalid username characters", http.StatusBadRequest)
+			return
+		}
 		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "aud": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
 		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 		signed, _ := tok.SignedString(jwtKey)
@@ -206,6 +250,14 @@ func main() {
 		}
 		if raw == "" {
 			http.Error(w, "token required", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.LengthBetween(raw, 16, 4096); err != nil {
+			http.Error(w, "invalid token", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(raw); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
 		if _, err := jwtValidator.Validate(r.Context(), raw); err != nil {
@@ -250,6 +302,15 @@ func main() {
 
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
 	mux.Handle("/secure/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if ct := strings.ToLower(r.Header.Get("Content-Type")); ct != "" && !strings.HasPrefix(ct, "application/json") {
+			http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		gqlHandler.ServeHTTP(w, r)
 	}))
 
