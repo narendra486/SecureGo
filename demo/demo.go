@@ -114,6 +114,38 @@ func main() {
 	mux.HandleFunc("/api/oauth/validate", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "disabled in secure profile; use real auth server", http.StatusForbidden)
 	})
+	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
+		if !checkCSRF(w, r) {
+			return
+		}
+		sub := r.FormValue("sub")
+		if sub == "" {
+			sub = "demo"
+		}
+		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, _ := tok.SignedString([]byte(jwtDemoKey))
+		fmt.Fprintf(w, `{"token":"%s"}`, signed)
+	})
+	mux.HandleFunc("/api/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
+		if !checkCSRF(w, r) {
+			return
+		}
+		raw := r.FormValue("token")
+		if raw == "" {
+			raw = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+		if raw == "" {
+			http.Error(w, "token required", http.StatusBadRequest)
+			return
+		}
+		tok, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) { return []byte(jwtDemoKey), nil })
+		if err != nil || !tok.Valid {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"status":"valid"}`)
+	})
 
 	// Insecure endpoints
 	users := map[string]struct {
@@ -192,6 +224,34 @@ func main() {
 		}
 		tok, _ := jwt.Parse(raw, nil, jwt.WithoutClaimsValidation())
 		fmt.Fprintf(w, "token accepted: %v\n", tok.Claims)
+	})
+	mux.HandleFunc("/vuln/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
+		user := r.FormValue("sub")
+		if user == "" {
+			user = "guest"
+		}
+		claims := jwt.MapClaims{"sub": user, "iss": "vuln", "exp": time.Now().Add(2 * time.Hour).Unix()}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, _ := tok.SignedString([]byte(weakSecret))
+		fmt.Fprintf(w, `{"token":"%s"}`, signed)
+	})
+	mux.HandleFunc("/vuln/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
+		raw := r.FormValue("token")
+		if raw == "" {
+			raw = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+		if raw == "" {
+			http.Error(w, "token required", http.StatusBadRequest)
+			return
+		}
+		tok, _ := jwt.Parse(raw, nil, jwt.WithoutClaimsValidation())
+		fmt.Fprintf(w, "token accepted (no sig check): %v\n", tok.Claims)
+	})
+	mux.HandleFunc("/vuln/csrf", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"csrf_token":"static-weak-token"}`)
+	})
+	mux.HandleFunc("/vuln/headers", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "no security headers here\n")
 	})
 
 	addr := ":1337"

@@ -67,8 +67,12 @@
       { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
       { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
       { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'alice', desc: 'No authz check on user resource.' },
+      { id: 'csrf', name: 'CSRF Token', method: 'POST', path: '/csrf', param: null, payload: '', desc: 'Fetch CSRF token.' },
+      { id: 'jwt-mint', name: 'JWT Mint', method: 'POST', path: '/jwt/mint', param: 'sub', payload: 'demo', desc: 'Mint JWT token.' },
+      { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Validate JWT token.' },
       { id: 'oauth-token', name: 'OAuth Weak Token', method: 'POST', path: '/oauth/token', param: 'user', payload: 'alice', desc: 'Mints HS256 token with weak secret, no client auth.' },
-      { id: 'oauth-validate', name: 'OAuth No Sig Check', method: 'POST', path: '/oauth/validate', param: 'token', payload: 'paste-token-here', desc: 'Accepts token without verifying signature.' }
+      { id: 'oauth-validate', name: 'OAuth No Sig Check', method: 'POST', path: '/oauth/validate', param: 'token', payload: 'paste-token-here', desc: 'Accepts token without verifying signature.' },
+      { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Check response security headers.' }
     ];
 
     const bugSelect = document.getElementById('bug');
