@@ -53,7 +53,7 @@ func main() {
 
 	// Serve UI
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "src/demo/ui.html")
+		http.ServeFile(w, r, "ui.html")
 	})
 
 	// Secure routes (validation via /internal packages only)
