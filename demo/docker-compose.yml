@@ -1,42 +1,8 @@
 version: "3.9"
 services:
-  api:
+  app:
     build:
       context: ..
-      dockerfile: demo/Dockerfile.api
-    environment:
-      HTTP_ADDR: ":8443"
-      GRPC_ADDR: ":50051"
-      # Provide one of the following for JWT validation in /api/jwt/check
-      # JWT_ED_PUBLIC_KEY: /keys/jwt_ed_pub.pem
-      # JWT_RS_PUBLIC_KEY: /keys/jwt_rs_pub.pem
-    volumes:
-      - ./keys:/keys:ro
-    expose:
-      - "8443"
-    networks:
-      - testnet
-
-  ui:
-    image: caddy:2
-    volumes:
-      - ./ui:/usr/share/caddy
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      dockerfile: demo/Dockerfile.single
     ports:
-      - "8080:80"
-    depends_on:
-      - api
-    networks:
-      - testnet
-
-  vuln-go:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile.vulngo
-    expose:
-      - "8080"
-    networks:
-      - testnet
-
-networks:
-  testnet: {}
+      - "8080:8080"
