@@ -14,9 +14,5 @@ func ProtectBytes(secret []byte) (*memguard.LockedBuffer, error) {
 		return nil, fmt.Errorf("secret is empty")
 	}
 	memguard.CatchInterrupt()
-	buf, err := memguard.NewImmutableFromBytes(secret)
-	if err != nil {
-		return nil, fmt.Errorf("memguard: %w", err)
-	}
-	return buf, nil
+	return memguard.NewBufferFromBytes(secret), nil
 }

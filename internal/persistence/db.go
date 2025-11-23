@@ -9,8 +9,16 @@ import (
 
 // SafeDB wraps sql.DB with context timeouts and prepared statement guidance.
 type SafeDB struct {
-	DB             *sql.DB
+	DB             DB
 	DefaultTimeout time.Duration
+}
+
+// DB defines the methods SafeDB needs (satisfied by sql.DB and role wrappers).
+type DB interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
 
 // Configure sets sensible connection pool defaults.

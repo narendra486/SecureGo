@@ -17,8 +17,12 @@ const (
 
 // WithRole returns a SafeDB view that enforces read-only access when requested.
 func (s SafeDB) WithRole(role Role) SafeDB {
+	base, ok := toSQLDB(s.DB)
+	if !ok {
+		return s
+	}
 	return SafeDB{
-		DB:             &roleDB{db: s.DB, role: role},
+		DB:             &roleDB{db: base, role: role},
 		DefaultTimeout: s.DefaultTimeout,
 	}
 }
@@ -60,4 +64,15 @@ func isMutating(q string) bool {
 	// lightweight check; callers should still use read-only DB accounts in production
 	q = strings.TrimSpace(strings.ToUpper(q))
 	return strings.HasPrefix(q, "INSERT") || strings.HasPrefix(q, "UPDATE") || strings.HasPrefix(q, "DELETE") || strings.HasPrefix(q, "DROP") || strings.HasPrefix(q, "ALTER")
+}
+
+func toSQLDB(db DB) (*sql.DB, bool) {
+	switch v := db.(type) {
+	case *sql.DB:
+		return v, true
+	case *roleDB:
+		return v.db, true
+	default:
+		return nil, false
+	}
 }
