@@ -90,9 +90,8 @@
 <body>
   <header>
     <div>
-      <h1>SecureGo Lab Console</h1>
-      <p>Pick a vulnerability test, target (SecureGo or VulnGo), tweak payloads, and view request/response like a mini
-        Repeater.</p>
+      <h1>SecureGo Demo Console</h1>
+      <p>Choose a vuln scenario, aim at SecureGo or VulnGo, tweak the payload, and inspect the request/response</p>
     </div>
   </header>
 
@@ -105,7 +104,7 @@
       <div>
         <label for="target">Target</label>
         <select id="target">
-          <option value="/secure">SecureGo API</option>
+          <option value="/secure">SecureGo</option>
           <option value="/vuln">VulnGo</option>
         </select>
       </div>
@@ -138,16 +137,16 @@
 
   <script>
     const bugs = [
-      { id: 'xss', name: 'XSS', method: 'POST', path: '/xss', param: 'input', payload: '<script>alert(1)<\/script>', desc: 'Reflected input rendered with/without escaping.' },
-      { id: 'sqli', name: 'SQLi', method: 'POST', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
-      { id: 'ssrf', name: 'SSRF', method: 'POST', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:1337', desc: 'Unvalidated outbound fetch.' },
-      { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '..\\\\..\\\\..\\\\..\\\\Windows\\\\win.ini', desc: 'Reads arbitrary filesystem path (Linux: ../../../../etc/passwd)' },
-      { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
-      { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'user1334', desc: 'No authz check on user resource.' },
-      { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'Fetch CSRF token for SecureGo requests.' },
-      { id: 'jwt-mint', name: 'JWT Mint', method: 'POST', path: '/jwt/mint', param: 'sub', payload: 'demo', desc: 'Mint JWT token.' },
-      { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Validate JWT token.' },
-      { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Check response security headers.' }
+      { id: 'xss', name: 'XSS', method: 'POST', path: '/xss', param: 'input', payload: '<script>alert(1)<\/script>', desc: 'Cross-Site Scripting (XSS) is a bug that lets attackers run malicious JavaScript in the user’s browser. The vulnerable route outputs raw input and executes it, while the secure route escapes it as harmless text.' },
+      { id: 'sqli', name: 'SQLi', method: 'POST', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'A bug that lets attackers alter database queries by injecting SQL. The vulnerable route concatenates raw input into the query, while the secure route uses prepared statements to block it.' },
+      { id: 'ssrf', name: 'SSRF', method: 'POST', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:1337', desc: 'A bug that lets attackers make the server fetch arbitrary URLs. The vulnerable route allows access to internal addresses, while the secure route blocks private/localhost ranges.' },
+      { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '..\\\\..\\\\..\\\\..\\\\Windows\\\\win.ini', desc: 'A bug that lets attackers read files outside the intended directory. The vulnerable route accepts unsafe paths, while the secure route blocks traversal sequences.' },
+      { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'A bug that lets attackers run system commands through user input. The vulnerable route passes input to the shell, while the secure route avoids shell execution entirely.' },
+      { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'user1334', desc: 'A bug that lets attackers access other users’ resources by guessing IDs. The vulnerable route exposes data without checks, while the secure route enforces authorization.' },
+      { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'A protection mechanism preventing attackers from triggering user actions. The secure route requires a valid anti-CSRF token; the vulnerable route does not.' },
+      { id: 'jwt-mint', name: 'JWT Mint', method: 'POST', path: '/jwt/mint', param: 'username', payload: 'user1334', desc: 'Issues a signed JWT for the subject provided. Useful for demonstrating how tokens and claims are created.' },
+      { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Checks whether a submitted JWT is valid—verifying signature, issuer, audience, and expiry.' },
+      { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Shows browser-hardening headers added by middleware, such as CSP, HSTS, and X-Frame-Options.' }
     ];
 
     const bugSelect = document.getElementById('bug');

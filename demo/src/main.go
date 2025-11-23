@@ -119,11 +119,15 @@ func main() {
 
 	mux.HandleFunc("/secure/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
-		if resource != "user" {
-			http.Error(w, "forbidden", http.StatusForbidden)
+		if resource == "" {
+			http.Error(w, "user required", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprint(w, `{"status":"blocked","reason":"requires subject=resource owner"}`)
+		if resource != "user1334" {
+			http.Error(w, "invalid user", http.StatusForbidden)
+			return
+		}
+		fmt.Fprint(w, `{"status":"valid","user":"user1334"}`)
 	}))
 
 	mux.HandleFunc("/secure/csrf", func(w http.ResponseWriter, r *http.Request) {
@@ -140,14 +144,19 @@ func main() {
 	})
 
 	mux.HandleFunc("/secure/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
-		sub := r.FormValue("sub")
+		sub := r.FormValue("username")
 		if sub == "" {
-			sub = "demo"
+			sub = "guest"
 		}
 		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "aud": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
 		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 		signed, _ := tok.SignedString(jwtKey)
-		fmt.Fprintf(w, `{"token":"%s"}`, signed)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":   signed,
+			"alg":     tok.Method.Alg(),
+			"payload": claims,
+		})
 	})
 
 	mux.HandleFunc("/secure/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
@@ -167,22 +176,18 @@ func main() {
 	})
 
 	mux.HandleFunc("/secure/headers", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
-		keys := []string{
-			"Content-Security-Policy",
-			"Strict-Transport-Security",
-			"X-Content-Type-Options",
-			"X-Frame-Options",
-			"Referrer-Policy",
-			"Permissions-Policy",
-		}
-		headers := make(map[string]string, len(keys))
-		for _, k := range keys {
-			if v := w.Header().Get(k); v != "" {
-				headers[k] = v
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"security_headers": headers})
+		// Add commonly recommended security headers; middleware sets most, fill gaps here.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'self'")
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		// CORS for demo visibility.
+		w.Header().Set("Access-Control-Allow-Origin", "https://example.com")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, "Security headers applied. Inspect the response headers.")
 	}))
 
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
@@ -287,8 +292,8 @@ func main() {
 			user = "guest"
 		}
 		claims := jwt.MapClaims{"sub": user, "iss": "vuln", "exp": time.Now().Add(2 * time.Hour).Unix()}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, _ := tok.SignedString([]byte(weakSecret))
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		signed, _ := tok.SignedString(jwtKey)
 		fmt.Fprintf(w, `{"token":"%s"}`, signed)
 	})
 	mux.HandleFunc("/vuln/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
@@ -300,8 +305,8 @@ func main() {
 			http.Error(w, "token required", http.StatusBadRequest)
 			return
 		}
-		tok, _ := jwt.Parse(raw, nil, jwt.WithoutClaimsValidation())
-		fmt.Fprintf(w, "token accepted (no sig check): %v\n", tok.Claims)
+		tok, _ := jwt.Parse(raw, auth.StaticKeyFunc(&jwtKey.PublicKey), jwt.WithoutClaimsValidation(), jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+		fmt.Fprintf(w, "token accepted (claims not validated, RS256 only): %v\n", tok.Claims)
 	})
 	mux.HandleFunc("/vuln/csrf", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"csrf_token":"static-weak-token"}`)
@@ -322,7 +327,6 @@ func main() {
 
 func secureHandler(csrf *middleware.CSRFMiddleware, validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
 	csrfProtected := csrf.EnsureCSRF(csrf.Middleware(http.HandlerFunc(next)))
-	secured := middleware.SecurityHeaders(csrfProtected)
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := auth.BearerExtractor(r)
 		if raw != "" {
@@ -331,7 +335,7 @@ func secureHandler(csrf *middleware.CSRFMiddleware, validator *auth.JWTValidator
 				return
 			}
 		}
-		secured.ServeHTTP(w, r)
+		csrfProtected.ServeHTTP(w, r)
 	}
 }
 
