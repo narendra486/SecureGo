@@ -23,7 +23,6 @@ import (
 	"Securego/internal/inputvalidation"
 	"Securego/internal/middleware"
 	"Securego/internal/persistence"
-	"Securego/internal/secrets"
 	"Securego/internal/telemetry"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -356,8 +355,5 @@ func startGRPC(logger telemetry.Logger) {
 }
 
 func init() {
-	loader := secrets.MustRequire("SECUREGO_MASTER_KEY")
-	if err := loader.ValidateRequired(); err != nil {
-		log.Printf("warning: %v; generating ephemeral demo secret", err)
-	}
+	// Demo ignores SECUREGO_MASTER_KEY; production should set and require secrets explicitly.
 }
