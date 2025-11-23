@@ -2,7 +2,9 @@ package server
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net/http"
+	"os"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -13,6 +15,8 @@ type Config struct {
 	Addr              string
 	TLSCertFile       string
 	TLSKeyFile        string
+	ClientCAFile      string
+	RequireClientCert bool
 	ShutdownGrace     time.Duration
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
@@ -50,7 +54,7 @@ func New(handler http.Handler, cfg Config) *http.Server {
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
-		TLSConfig:         tlsConfig(),
+		TLSConfig:         tlsConfig(cfg),
 	}
 
 	// Strict TLS only when certs are set; otherwise the caller can decide to run plain HTTP inside private networks.
@@ -77,10 +81,34 @@ func New(handler http.Handler, cfg Config) *http.Server {
 }
 
 func tlsConfig() *tls.Config {
-	return &tls.Config{
+	return tlsConfig(Config{})
+}
+
+func tlsConfig(cfg Config) *tls.Config {
+	base := &tls.Config{
 		MinVersion:               tls.VersionTLS13,
 		CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
 		PreferServerCipherSuites: true,
 		SessionTicketsDisabled:   true,
 	}
+	if cfg.RequireClientCert && cfg.ClientCAFile != "" {
+		caPool, err := loadCAPool(cfg.ClientCAFile)
+		if err == nil {
+			base.ClientCAs = caPool
+			base.ClientAuth = tls.RequireAndVerifyClientCert
+		}
+	}
+	return base
+}
+
+func loadCAPool(path string) (*x509.CertPool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, err
+	}
+	return pool, nil
 }

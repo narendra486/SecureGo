@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"database/sql"
 	"fmt"
 	"html"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,13 +17,41 @@ import (
 	"strings"
 	"time"
 
+	"Securego/internal/auth"
+	"Securego/internal/graphqlapi"
+	"Securego/internal/grpcapi"
+	"Securego/internal/httpclient"
 	"Securego/internal/inputvalidation"
+	"Securego/internal/middleware"
+	"Securego/internal/persistence"
+	"Securego/internal/secrets"
+	"Securego/internal/telemetry"
+	"Securego/pkg/sandbox"
+
 	jwt "github.com/golang-jwt/jwt/v5"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // Demo server with secure (/api) and vulnerable (/vuln) routes.
-// Only XSS uses inputvalidation; other vulns are intentionally lax.
+// Secure flows are wired through internal packages only (validation, CSRF, JWT, sandbox, SSRF guard, persistence, GraphQL/gRPC).
 func main() {
+	logger := telemetry.NewLogger()
+	csrf := middleware.NewCSRF(middleware.CSRFConfig{
+		Secure:         false, // allow http demo locally
+		HTTPOnly:       true,
+		ValidateOrigin: false,
+	})
+	jwtKey := mustRSAPrivateKey()
+	jwtValidator := auth.JWTValidator{
+		Issuer:     "securego",
+		Audiences:  []string{"securego"},
+		Algorithms: []string{jwt.SigningMethodRS256.Alg()},
+		KeyFunc:    auth.StaticKeyFunc(&jwtKey.PublicKey),
+		ClockSkew:  30 * time.Second,
+	}
+	safeDB := mustInitDB()
+	startGRPC(logger)
+
 	mux := http.NewServeMux()
 
 	// Serve UI
@@ -25,16 +59,17 @@ func main() {
 		http.ServeFile(w, r, "src/demo/ui.html")
 	})
 
-	// Secure routes (minimal validation via internal/inputvalidation for XSS; CSRF/JWT guarding)
+	// Secure routes (validation via /internal packages only)
 	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
-		token := issueCSRF(w)
+		token, err := csrf.IssueToken(w)
+		if err != nil {
+			http.Error(w, "csrf issue failed", http.StatusInternalServerError)
+			return
+		}
 		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
 	})
 
-	mux.HandleFunc("/api/xss", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
-			return
-		}
+	mux.HandleFunc("/api/xss", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		in := r.FormValue("input")
 		if err := inputvalidation.LengthBetween(in, 1, 256); err != nil {
 			http.Error(w, "invalid input", http.StatusBadRequest)
@@ -45,79 +80,126 @@ func main() {
 			return
 		}
 		fmt.Fprintf(w, `{"status":"sanitized","echo":"%s"}`, html.EscapeString(in))
-	})
+	}))
 
-	// Other secure routes: no deep validation here (demo), still require CSRF/JWT.
-	mux.HandleFunc("/api/sqli", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
-			return
-		}
+	mux.HandleFunc("/api/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
-	})
-	mux.HandleFunc("/api/ssrf", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
+	}))
+
+	mux.HandleFunc("/api/db", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		user := r.FormValue("user")
+		if err := inputvalidation.LengthBetween(user, 3, 32); err != nil {
+			http.Error(w, "invalid user", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprint(w, `{"status":"blocked","reason":"egress allowlist"}`)
-	})
-	mux.HandleFunc("/api/path", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
+		var balance int
+		if err := safeDB.QueryRow(r.Context(), "SELECT balance FROM accounts WHERE user = ?", user).Scan(&balance); err != nil {
+			http.Error(w, "not found or error", http.StatusNotFound)
 			return
 		}
+		fmt.Fprintf(w, `{"user":"%s","balance":%d}`, user, balance)
+	}))
+
+	mux.HandleFunc("/api/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		raw := r.FormValue("url")
+		client := httpclient.New()
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, raw, nil)
+		if err != nil {
+			http.Error(w, "invalid url", http.StatusBadRequest)
+			return
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "blocked: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"fetched","code":%d}`, resp.StatusCode)
+	}))
+
+	mux.HandleFunc("/api/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
-	})
-	mux.HandleFunc("/api/cmd", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
+	}))
+
+	mux.HandleFunc("/api/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		host := r.FormValue("host")
+		hostRe := regexp.MustCompile(`^[a-zA-Z0-9.:-]+$`)
+		if err := inputvalidation.MatchesRegex(host, hostRe); err != nil {
+			http.Error(w, "invalid host", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprint(w, `{"status":"blocked","reason":"no shell exec on untrusted input"}`)
-	})
-	mux.HandleFunc("/api/idor", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) || !checkJWT(r) {
+		runner := sandbox.CommandRunner{
+			AllowedDirs: []string{"/bin", "/sbin", "/usr/bin", "/usr/sbin"},
+			AllowedBins: []string{"ping"},
+			Timeout:     3 * time.Second,
+			ArgsValidator: func(args []string) bool {
+				if len(args) != 3 {
+					return false
+				}
+				return regexp.MustCompile(`^[a-zA-Z0-9.:-]+$`).MatchString(args[2])
+			},
+		}
+		out, err := runner.Run(r.Context(), "/bin/ping", "-c", "1", host)
+		if err != nil {
+			http.Error(w, "blocked: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		w.Write(out)
+	}))
+
+	mux.HandleFunc("/api/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
 		if resource != "user" {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"requires subject=resource owner"}`)
-	})
+	}))
+
 	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) {
+		if err := csrf.ValidateToken(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		sub := r.FormValue("sub")
 		if sub == "" {
 			sub = "demo"
 		}
-		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, _ := tok.SignedString([]byte(jwtDemoKey))
+		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "aud": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		signed, _ := tok.SignedString(jwtKey)
 		fmt.Fprintf(w, `{"token":"%s"}`, signed)
 	})
+
 	mux.HandleFunc("/api/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
-		if !checkCSRF(w, r) {
+		if err := csrf.ValidateToken(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		raw := r.FormValue("token")
 		if raw == "" {
-			raw = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			raw, _ = auth.BearerExtractor(r)
 		}
 		if raw == "" {
 			http.Error(w, "token required", http.StatusBadRequest)
 			return
 		}
-		tok, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) { return []byte(jwtDemoKey), nil })
-		if err != nil || !tok.Valid {
+		if _, err := jwtValidator.Validate(r.Context(), raw); err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"status":"valid"}`)
 	})
+
 	mux.HandleFunc("/api/headers", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "secure headers applied via middleware\n")
+		fmt.Fprint(w, `{"status":"applied","headers":"strict CSP/HSTS/frame/xct options via middleware"}`)
 	})
+
+	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
+	mux.Handle("/api/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		gqlHandler.ServeHTTP(w, r)
+	}))
 
 	// Insecure routes
 	users := map[string]struct {
@@ -228,62 +310,76 @@ func main() {
 
 	addr := ":1337"
 	log.Printf("Demo server listening on %s\n", addr)
-	if err := http.ListenAndServe(addr, withSecurityHeaders(mux)); err != nil {
+	secured := middleware.RequestID(
+		middleware.Recovery(
+			middleware.SecurityHeaders(
+				middleware.BodyLimit(1 << 20)(mux),
+			),
+		),
+	)
+	if err := http.ListenAndServe(addr, secured); err != nil {
 		log.Fatal(err)
 	}
 }
 
-const csrfCookieName = "csrf_token"
-const jwtDemoKey = "demo-securego-key"
-
-func issueCSRF(w http.ResponseWriter) string {
-	token := fmt.Sprintf("%d", time.Now().UnixNano())
-	http.SetCookie(w, &http.Cookie{
-		Name:     csrfCookieName,
-		Value:    token,
-		Path:     "/",
-		MaxAge:   3600,
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
-	})
-	return token
+func secureHandler(csrf *middleware.CSRFMiddleware, validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := csrf.ValidateToken(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		raw, _ := auth.BearerExtractor(r)
+		if raw != "" {
+			if _, err := validator.Validate(r.Context(), raw); err != nil {
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
-func checkCSRF(w http.ResponseWriter, r *http.Request) bool {
-	c, err := r.Cookie(csrfCookieName)
+func mustRSAPrivateKey() *rsa.PrivateKey {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		http.Error(w, "missing csrf cookie, call /api/csrf", http.StatusForbidden)
-		return false
+		log.Fatal(err)
 	}
-	if r.Header.Get("X-CSRF-Token") == "" || r.Header.Get("X-CSRF-Token") != c.Value {
-		http.Error(w, "invalid csrf token", http.StatusForbidden)
-		return false
-	}
-	return true
+	return key
 }
 
-func checkJWT(r *http.Request) bool {
-	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if raw == "" {
-		return true // allow non-jwt calls in demo by default
+func mustInitDB() persistence.SafeDB {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		log.Fatal(err)
 	}
-	tok, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) {
-		return []byte(jwtDemoKey), nil
-	})
-	if err != nil || !tok.Valid {
-		return false
+	persistence.Configure(db)
+	safe := persistence.SafeDB{DB: db, DefaultTimeout: 2 * time.Second}
+	_, _ = safe.Exec(context.Background(), "CREATE TABLE accounts(user TEXT PRIMARY KEY, balance INTEGER)")
+	for user, bal := range map[string]int{"user1331": 100, "user1335": 250, "user1337": 500, "user1339": 1000} {
+		_, _ = safe.Exec(context.Background(), "INSERT INTO accounts(user, balance) VALUES(?, ?)", user, bal)
 	}
-	return true
+	return safe
 }
 
-func withSecurityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-XSS-Protection", "0")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; form-action 'self'")
-		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
-		next.ServeHTTP(w, r)
-	})
+func startGRPC(logger telemetry.Logger) {
+	go func() {
+		lis, err := net.Listen("tcp", ":1338")
+		if err != nil {
+			logger.Error("grpc listen failed", "err", err)
+			return
+		}
+		s := grpcapi.NewServer(logger, grpcapi.DefaultConfig())
+		grpcapi.RegisterPing(s)
+		logger.Info("grpc server listening", "addr", ":1338")
+		if err := s.Serve(lis); err != nil && !strings.Contains(err.Error(), "closed") {
+			logger.Error("grpc serve failed", "err", err)
+		}
+	}()
+}
+
+func init() {
+	loader := secrets.MustRequire("SECUREGO_MASTER_KEY")
+	if err := loader.ValidateRequired(); err != nil {
+		log.Printf("warning: %v; generating ephemeral demo secret", err)
+	}
 }

@@ -12,9 +12,11 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/graphql-go/graphql v0.8.1
 	github.com/graphql-go/handler v0.2.4
+	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/russellhaering/gosaml2 v0.10.0
 	github.com/secure-io/siv-go v0.0.0-20180922214919-5ff40651e2c4
 	golang.org/x/crypto v0.45.0
+	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.33.0
 	google.golang.org/grpc v1.77.0
 )
@@ -43,7 +45,6 @@ require (
 	github.com/tidwall/rtree v0.0.0-20180113144539-6cd427091e0e // indirect
 	github.com/tidwall/tinyqueue v0.0.0-20180302190814-1e39f5511563 // indirect
 	github.com/valllabh/ocsf-schema-golang v1.0.3 // indirect
-	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
