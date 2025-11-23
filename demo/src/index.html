@@ -105,7 +105,7 @@
       <div>
         <label for="target">Target</label>
         <select id="target">
-          <option value="/api">SecureGo API</option>
+          <option value="/secure">SecureGo API</option>
           <option value="/vuln">VulnGo</option>
         </select>
       </div>
@@ -189,7 +189,7 @@
     updateUI();
 
     async function ensureCsrfToken(base) {
-      if (base !== '/api') return null;
+      if (base !== '/secure') return null;
       if (csrfToken) return csrfToken;
       const res = await fetch(base + '/csrf', { method: 'GET', credentials: 'include' });
       let token = res.headers.get('X-CSRF-Token') || '';
@@ -215,7 +215,7 @@
       const headers = {};
       const method = bug.method;
 
-      if (base === '/api') {
+      if (base === '/secure') {
         try {
           const token = await ensureCsrfToken(base);
           if (token) headers['X-CSRF-Token'] = token;

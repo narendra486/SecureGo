@@ -30,7 +30,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Demo server with secure (/api) and vulnerable (/vuln) routes.
+// Demo server with secure (/secure) and vulnerable (/vuln) routes.
 // Secure flows are wired through internal packages only (validation, JWT, SSRF guard, persistence, GraphQL/gRPC).
 func main() {
 	logger := telemetry.NewLogger()
@@ -58,7 +58,7 @@ func main() {
 	})
 
 	// Secure routes (validation via /internal packages only)
-	mux.HandleFunc("/api/xss", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/xss", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		in := r.FormValue("input")
 		if err := inputvalidation.LengthBetween(in, 1, 256); err != nil {
 			http.Error(w, "invalid input", http.StatusBadRequest)
@@ -72,11 +72,11 @@ func main() {
 		fmt.Fprintf(w, "<!doctype html><html><body><p>Echo: <span>%s</span></p></body></html>", html.EscapeString(in))
 	}))
 
-	mux.HandleFunc("/api/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
 	}))
 
-	mux.HandleFunc("/api/db", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/db", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("user")
 		if err := inputvalidation.LengthBetween(user, 3, 32); err != nil {
 			http.Error(w, "invalid user", http.StatusBadRequest)
@@ -90,7 +90,7 @@ func main() {
 		fmt.Fprintf(w, `{"user":"%s","balance":%d}`, user, balance)
 	}))
 
-	mux.HandleFunc("/api/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		raw := r.FormValue("url")
 		client := httpclient.New()
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, raw, nil)
@@ -108,16 +108,16 @@ func main() {
 		fmt.Fprintf(w, `{"status":"fetched","code":%d}`, resp.StatusCode)
 	}))
 
-	mux.HandleFunc("/api/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
 	}))
 
-	mux.HandleFunc("/api/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		// Secure variant disables command execution entirely.
 		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
 
-	mux.HandleFunc("/api/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
 		if resource != "user" {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -126,7 +126,7 @@ func main() {
 		fmt.Fprint(w, `{"status":"blocked","reason":"requires subject=resource owner"}`)
 	}))
 
-	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/csrf", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -139,7 +139,7 @@ func main() {
 		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
 	})
 
-	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
 		sub := r.FormValue("sub")
 		if sub == "" {
 			sub = "demo"
@@ -150,7 +150,7 @@ func main() {
 		fmt.Fprintf(w, `{"token":"%s"}`, signed)
 	})
 
-	mux.HandleFunc("/api/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
 		raw := r.FormValue("token")
 		if raw == "" {
 			raw, _ = auth.BearerExtractor(r)
@@ -166,7 +166,7 @@ func main() {
 		fmt.Fprint(w, `{"status":"valid"}`)
 	})
 
-	mux.HandleFunc("/api/headers", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/secure/headers", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		keys := []string{
 			"Content-Security-Policy",
 			"Strict-Transport-Security",
@@ -186,7 +186,7 @@ func main() {
 	}))
 
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
-	mux.Handle("/api/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/secure/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		gqlHandler.ServeHTTP(w, r)
 	}))
 

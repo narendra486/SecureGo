@@ -12,11 +12,11 @@ docker compose up --build
 ```
 
 - UI + API + Vuln lab all live at http://localhost:1337
-- The UI targets SecureGo at `/api/*` and the VulnGo lab at `/vuln/*`.
+- The UI targets SecureGo at `/secure/*` and the VulnGo lab at `/vuln/*`.
 
 ## What the UI does
 - Lets you send POST requests with raw bodies to common vuln cases: XSS, SQLi, SSRF, path traversal, command injection, IDOR, weak OAuth token, and OAuth validate with no signature check.
-- Toggle targets between SecureGo (`/api`) and VulnGo (`/vuln`); compare behavior.
+- Toggle targets between SecureGo (`/secure`) and VulnGo (`/vuln`); compare behavior.
 
 ## Notes
 - Single Go process serves everything on port 1337.
