@@ -30,14 +30,9 @@ import (
 )
 
 // Demo server with secure (/api) and vulnerable (/vuln) routes.
-// Secure flows are wired through internal packages only (validation, CSRF, JWT, sandbox, SSRF guard, persistence, GraphQL/gRPC).
+// Secure flows are wired through internal packages only (validation, JWT, SSRF guard, persistence, GraphQL/gRPC).
 func main() {
 	logger := telemetry.NewLogger()
-	csrf := middleware.NewCSRF(middleware.CSRFConfig{
-		Secure:         false, // allow http demo locally
-		HTTPOnly:       true,
-		ValidateOrigin: false,
-	})
 	jwtKey := mustRSAPrivateKey()
 	jwtValidator := auth.JWTValidator{
 		Issuer:     "securego",
@@ -53,22 +48,11 @@ func main() {
 
 	// Serve UI
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Allow inline styles for the demo UI.
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'")
 		http.ServeFile(w, r, "index.html")
 	})
 
 	// Secure routes (validation via /internal packages only)
-	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
-		token, err := csrf.IssueToken(w)
-		if err != nil {
-			http.Error(w, "csrf issue failed", http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
-	})
-
-	mux.HandleFunc("/api/xss", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/xss", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		in := r.FormValue("input")
 		if err := inputvalidation.LengthBetween(in, 1, 256); err != nil {
 			http.Error(w, "invalid input", http.StatusBadRequest)
@@ -81,11 +65,11 @@ func main() {
 		fmt.Fprintf(w, `{"status":"sanitized","echo":"%s"}`, html.EscapeString(in))
 	}))
 
-	mux.HandleFunc("/api/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/sqli", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
 	}))
 
-	mux.HandleFunc("/api/db", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/db", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("user")
 		if err := inputvalidation.LengthBetween(user, 3, 32); err != nil {
 			http.Error(w, "invalid user", http.StatusBadRequest)
@@ -99,7 +83,7 @@ func main() {
 		fmt.Fprintf(w, `{"user":"%s","balance":%d}`, user, balance)
 	}))
 
-	mux.HandleFunc("/api/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/ssrf", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		raw := r.FormValue("url")
 		client := httpclient.New()
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, raw, nil)
@@ -117,16 +101,16 @@ func main() {
 		fmt.Fprintf(w, `{"status":"fetched","code":%d}`, resp.StatusCode)
 	}))
 
-	mux.HandleFunc("/api/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/path", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
 	}))
 
-	mux.HandleFunc("/api/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/cmd", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		// Secure variant disables command execution entirely.
 		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
 
-	mux.HandleFunc("/api/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/idor", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
 		if resource != "user" {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -136,10 +120,6 @@ func main() {
 	}))
 
 	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
-		if err := csrf.ValidateToken(r); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
 		sub := r.FormValue("sub")
 		if sub == "" {
 			sub = "demo"
@@ -151,10 +131,6 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/jwt/validate", func(w http.ResponseWriter, r *http.Request) {
-		if err := csrf.ValidateToken(r); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
 		raw := r.FormValue("token")
 		if raw == "" {
 			raw, _ = auth.BearerExtractor(r)
@@ -175,7 +151,7 @@ func main() {
 	})
 
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
-	mux.Handle("/api/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/graphql", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		gqlHandler.ServeHTTP(w, r)
 	}))
 
@@ -291,7 +267,7 @@ func main() {
 	log.Printf("Demo server listening on %s\n", addr)
 	secured := middleware.RequestID(
 		middleware.Recovery(
-			middleware.SecurityHeaders(
+			demoSecurityHeaders(
 				middleware.BodyLimit(1 << 20)(mux),
 			),
 		),
@@ -301,12 +277,8 @@ func main() {
 	}
 }
 
-func secureHandler(csrf *middleware.CSRFMiddleware, validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
+func secureHandler(validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := csrf.ValidateToken(r); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
 		raw, _ := auth.BearerExtractor(r)
 		if raw != "" {
 			if _, err := validator.Validate(r.Context(), raw); err != nil {
@@ -358,4 +330,15 @@ func startGRPC(logger telemetry.Logger) {
 
 func init() {
 	// Demo ignores SECUREGO_MASTER_KEY; production should set and require secrets explicitly.
+}
+
+// demoSecurityHeaders sets a minimal header baseline without CSP so inline styles work.
+func demoSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		next.ServeHTTP(w, r)
+	})
 }
