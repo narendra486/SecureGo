@@ -229,7 +229,8 @@ func main() {
 	mux.HandleFunc("/vuln/idor", func(w http.ResponseWriter, r *http.Request) {
 		u := r.FormValue("user")
 		if u == "" {
-			u = "user"
+			http.Error(w, "user parameter required (e.g., user1331)", http.StatusBadRequest)
+			return
 		}
 		info, ok := users[u]
 		if !ok {
