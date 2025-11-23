@@ -1,28 +1,91 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SecureGO Lab Console</title>
   <style>
-    :root { color-scheme: light; }
-    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
-    header { display: flex; justify-content: space-between; align-items: center; }
-    select, input, button, textarea { padding: 0.5rem; font-size: 14px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05); }
-    pre { background: #f6f8fa; color: #24292e; padding: 1rem; border-radius: 6px; border: 1px solid #e0e0e0; overflow: auto; min-height: 200px; white-space: pre-wrap; word-break: break-word; }
-    textarea { width: 100%; box-sizing: border-box; }
-    label { font-weight: bold; display: block; margin-bottom: 0.25rem; }
-    small { color: #666; }
-    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    select,
+    input,
+    button,
+    textarea {
+      padding: 0.5rem;
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 1rem;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    pre {
+      background: #f6f8fa;
+      color: #24292e;
+      padding: 1rem;
+      border-radius: 6px;
+      border: 1px solid #e0e0e0;
+      overflow: auto;
+      min-height: 200px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    small {
+      color: #666;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
+
 <body>
   <header>
     <div>
       <h1>SecureGO Lab Console</h1>
-      <p>Pick a vulnerability test, target (SecureGo or VulnGo), tweak payloads, and view request/response like a mini Repeater.</p>
+      <p>Pick a vulnerability test, target (SecureGo or VulnGo), tweak payloads, and view request/response like a mini
+        Repeater.</p>
     </div>
   </header>
 
@@ -140,4 +203,5 @@
     });
   </script>
 </body>
+
 </html>
