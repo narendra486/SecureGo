@@ -84,6 +84,19 @@
       min-height: 220px;
       width: 100%;
     }
+
+    .login-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .login-row small {
+      color: #555;
+    }
   </style>
 </head>
 
@@ -108,6 +121,11 @@
           <option value="/vuln">VulnGo</option>
         </select>
       </div>
+    </div>
+    <div class="login-row">
+      <input id="login-username" type="text" value="user1334" aria-label="username" />
+      <button id="login-btn" type="button">Login</button>
+      <small id="login-status">Not logged in</small>
     </div>
     <div class="row" style="margin-top:0.5rem;">
       <label for="payload">Payload</label>
@@ -144,7 +162,7 @@
       { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'A bug that lets attackers run system commands through user input. The vulnerable route passes input to the shell, while the secure route avoids shell execution entirely.' },
       { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'user1334', desc: 'A bug that lets attackers access other users’ resources by guessing IDs. The vulnerable route exposes data without checks, while the secure route enforces authorization.' },
       { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'A protection mechanism preventing attackers from triggering user actions. The secure route requires a valid anti-CSRF token; the vulnerable route does not.' },
-      { id: 'jwt-mint', name: 'JWT Mint', method: 'POST', path: '/jwt/mint', param: 'username', payload: 'user1334', desc: 'Issues a signed JWT for the subject provided. Useful for demonstrating how tokens and claims are created.' },
+      { id: 'jwt-mint', name: 'JWT Token', method: 'POST', path: '/jwt/mint', param: 'username', payload: 'user1334', desc: 'Issues a signed JWT for the subject provided. Useful for demonstrating how tokens and claims are created.' },
       { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Checks whether a submitted JWT is valid—verifying signature, issuer, audience, and expiry.' },
       { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Shows browser-hardening headers added by middleware, such as CSP, HSTS, and X-Frame-Options.' }
     ];
@@ -157,7 +175,11 @@
     const resView = document.getElementById('res-view');
     const htmlPreview = document.getElementById('html-preview');
     const htmlCard = document.getElementById('html-card');
+    const loginInput = document.getElementById('login-username');
+    const loginBtn = document.getElementById('login-btn');
+    const loginStatus = document.getElementById('login-status');
     let csrfToken = '';
+    let jwtToken = '';
 
     bugs.forEach(b => {
       const opt = document.createElement('option');
@@ -174,6 +196,9 @@
     function updateUI() {
       const bug = currentBug();
       payloadInput.value = bug.payload;
+      if (bug.id === 'jwt-validate' && jwtToken) {
+        payloadInput.value = jwtToken;
+      }
       descEl.textContent = bug.desc;
       if (htmlCard) {
         htmlCard.style.display = bug.id === 'xss' ? 'block' : 'none';
@@ -207,12 +232,47 @@
       return csrfToken;
     }
 
+    async function login() {
+      const username = (loginInput.value || '').trim() || 'user1334';
+      loginStatus.textContent = 'Logging in...';
+      try {
+        const token = await ensureCsrfToken('/secure');
+        const res = await fetch('/secure/jwt/mint', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRF-Token': token || ''
+          },
+          credentials: 'include',
+          body: 'username=' + encodeURIComponent(username)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.token) {
+          throw new Error(data.error || 'login failed');
+        }
+        jwtToken = data.token;
+        loginStatus.textContent = `Logged in as ${username}`;
+        if (currentBug().id === 'jwt-validate') {
+          payloadInput.value = jwtToken;
+        }
+      } catch (err) {
+        jwtToken = '';
+        loginStatus.textContent = `Login failed: ${err.message}`;
+      }
+    }
+
+    loginBtn.addEventListener('click', login);
+
     document.getElementById('send').addEventListener('click', async () => {
       const bug = currentBug();
       const base = targetSelect.value;
       let url = base + bug.path;
       const headers = {};
       const method = bug.method;
+
+      if (jwtToken) {
+        headers['Authorization'] = 'Bearer ' + jwtToken;
+      }
 
       if (base === '/secure') {
         try {
