@@ -11,7 +11,7 @@ cd demo
 docker compose up --build
 ```
 
-- UI + API + Vuln lab all live at http://localhost:8080
+- UI + API + Vuln lab all live at http://localhost:1337
 - The UI targets SecureGo at `/api/*` and the VulnGo lab at `/vuln/*`.
 
 ## What the UI does
@@ -19,5 +19,5 @@ docker compose up --build
 - Toggle targets between SecureGo (`/api`) and VulnGo (`/vuln`); compare behavior.
 
 ## Notes
-- Single Go process serves everything on port 8080.
+- Single Go process serves everything on port 1337.
 - Keep this demo separate from production; it is for local testing only.
