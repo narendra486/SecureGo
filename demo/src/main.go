@@ -53,6 +53,8 @@ func main() {
 
 	// Serve UI
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Allow inline styles for the demo UI.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'")
 		http.ServeFile(w, r, "index.html")
 	})
 
