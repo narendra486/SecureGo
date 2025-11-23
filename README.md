@@ -1,6 +1,6 @@
-# SecureGO
+# SecureGo
 
-SecureGO is a secure-by-default Go starter for HTTP, GraphQL, and gRPC services. The toolkit wraps standard libraries with safe defaults (tight timeouts, secure headers, CSRF-resilient JSON-only routes, hardened crypto, request IDs, panic recovery, and env-first configuration).
+SecureGo is a secure-by-default Go starter for HTTP, GraphQL, and gRPC services. The toolkit wraps standard libraries with safe defaults (tight timeouts, secure headers, CSRF-resilient JSON-only routes, hardened crypto, request IDs, panic recovery, and env-first configuration).
 
 ## Quick start
 

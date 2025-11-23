@@ -1,4 +1,4 @@
-# SecureGO Demo (Docker)
+# SecureGo Demo (Docker)
 
 Spin up a single demo server that serves the UI, SecureGo endpoints, and the VulnGo lab from one container.
 
