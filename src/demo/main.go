@@ -15,16 +15,22 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// single demo server: UI + /api/* (secure-ish) and /vuln/* (intentionally insecure).
+// Demo server with secure (/api) and vulnerable (/vuln) routes.
+// Only XSS uses inputvalidation; other vulns are intentionally lax.
 func main() {
 	mux := http.NewServeMux()
 
-	// Serve UI file
+	// Serve UI
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "demo/ui.html")
+		http.ServeFile(w, r, "src/demo/ui.html")
 	})
 
-	// Secure endpoints using internal/inputvalidation
+	// Secure routes (minimal validation via internal/inputvalidation for XSS; CSRF/JWT guarding)
+	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
+		token := issueCSRF(w)
+		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
+	})
+
 	mux.HandleFunc("/api/xss", func(w http.ResponseWriter, r *http.Request) {
 		if !checkCSRF(w, r) || !checkJWT(r) {
 			return
@@ -40,13 +46,10 @@ func main() {
 		}
 		fmt.Fprintf(w, `{"status":"sanitized","echo":"%s"}`, html.EscapeString(in))
 	})
+
+	// Other secure routes: no deep validation here (demo), still require CSRF/JWT.
 	mux.HandleFunc("/api/sqli", func(w http.ResponseWriter, r *http.Request) {
 		if !checkCSRF(w, r) || !checkJWT(r) {
-			return
-		}
-		user := r.FormValue("user")
-		if err := inputvalidation.LengthBetween(user, 1, 64); err != nil {
-			http.Error(w, "invalid user", http.StatusBadRequest)
 			return
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
@@ -55,35 +58,16 @@ func main() {
 		if !checkCSRF(w, r) || !checkJWT(r) {
 			return
 		}
-		raw := r.FormValue("url")
-		if err := inputvalidation.ValidateURL(raw, []string{"http", "https"}, []string{"example.com", "httpbin.org"}); err != nil {
-			http.Error(w, "blocked: "+err.Error(), http.StatusBadRequest)
-			return
-		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"egress allowlist"}`)
 	})
 	mux.HandleFunc("/api/path", func(w http.ResponseWriter, r *http.Request) {
 		if !checkCSRF(w, r) || !checkJWT(r) {
 			return
 		}
-		if _, err := inputvalidation.SanitizePath("/safe", r.FormValue("file")); err != nil {
-			http.Error(w, "blocked: "+err.Error(), http.StatusBadRequest)
-			return
-		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
 	})
 	mux.HandleFunc("/api/cmd", func(w http.ResponseWriter, r *http.Request) {
 		if !checkCSRF(w, r) || !checkJWT(r) {
-			return
-		}
-		host := r.FormValue("host")
-		if err := inputvalidation.LengthBetween(host, 1, 128); err != nil {
-			http.Error(w, "invalid host", http.StatusBadRequest)
-			return
-		}
-		hostRe := regexp.MustCompile(`^[a-zA-Z0-9.:-]+$`)
-		if err := inputvalidation.MatchesRegex(host, hostRe); err != nil {
-			http.Error(w, "blocked: host contains unsafe chars", http.StatusBadRequest)
 			return
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"no shell exec on untrusted input"}`)
@@ -93,26 +77,11 @@ func main() {
 			return
 		}
 		resource := r.FormValue("user")
-		// Demo subject from "session"
-		subject := "user"
-		if resource != subject {
-			http.Error(w, "forbidden: subject cannot access this resource", http.StatusForbidden)
+		if resource != "user" {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"requires subject=resource owner"}`)
-	})
-
-	// CSRF token issuance (double submit cookie/header)
-	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
-		token := issueCSRF(w)
-		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
-	})
-
-	mux.HandleFunc("/api/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "disabled in secure profile; use real auth server", http.StatusForbidden)
-	})
-	mux.HandleFunc("/api/oauth/validate", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "disabled in secure profile; use real auth server", http.StatusForbidden)
 	})
 	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
 		if !checkCSRF(w, r) {
@@ -146,8 +115,11 @@ func main() {
 		}
 		fmt.Fprint(w, `{"status":"valid"}`)
 	})
+	mux.HandleFunc("/api/headers", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "secure headers applied via middleware\n")
+	})
 
-	// Insecure endpoints
+	// Insecure routes
 	users := map[string]struct {
 		Email   string
 		Balance int
@@ -209,8 +181,8 @@ func main() {
 	mux.HandleFunc("/vuln/oauth/token", func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("user")
 		claims := jwt.MapClaims{"sub": user, "iss": "vuln", "exp": time.Now().Add(2 * time.Hour).Unix()}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, _ := token.SignedString([]byte(weakSecret))
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, _ := tok.SignedString([]byte(weakSecret))
 		fmt.Fprintf(w, `{"access_token":"%s","token_type":"bearer"}`, signed)
 	})
 	mux.HandleFunc("/vuln/oauth/validate", func(w http.ResponseWriter, r *http.Request) {
