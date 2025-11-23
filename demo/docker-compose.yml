@@ -3,6 +3,6 @@ services:
   app:
     build:
       context: ..
-      dockerfile: demo/Dockerfile.single
+      dockerfile: demo/Dockerfile
     ports:
-      - "8080:8080"
+      - "1337:1337"
