@@ -10,6 +10,11 @@ import (
 	"unicode/utf8"
 )
 
+var (
+	identPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9\.-:]+$`)
+)
+
 // CleanJoin ensures the target path stays under baseDir to prevent traversal.
 func CleanJoin(baseDir, target string) (string, error) {
 	return SanitizePath(baseDir, target)
@@ -43,6 +48,34 @@ func LengthBetween(s string, min, max int) error {
 func MatchesRegex(s string, re *regexp.Regexp) error {
 	if !re.MatchString(s) {
 		return errors.New("input does not match required pattern")
+	}
+	return nil
+}
+
+// ValidateIdentifier enforces an allowlist for identifiers (alnum, underscore, dash).
+func ValidateIdentifier(s string) error {
+	if err := LengthBetween(s, 1, 128); err != nil {
+		return err
+	}
+	if err := UTF8(s); err != nil {
+		return err
+	}
+	if !identPattern.MatchString(s) {
+		return errors.New("identifier has invalid characters")
+	}
+	return nil
+}
+
+// ValidateHost enforces an allowlist for simple host/port strings.
+func ValidateHost(s string) error {
+	if err := LengthBetween(s, 1, 253); err != nil {
+		return err
+	}
+	if err := UTF8(s); err != nil {
+		return err
+	}
+	if !hostPattern.MatchString(s) {
+		return errors.New("host has invalid characters")
 	}
 	return nil
 }

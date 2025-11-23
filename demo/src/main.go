@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -31,11 +30,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	_ "github.com/mattn/go-sqlite3"
-)
-
-var (
-	allowedIdent = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	allowedHost  = regexp.MustCompile(`^[A-Za-z0-9\.-:]+$`)
 )
 
 // Demo server with secure (/secure) and vulnerable (/vuln) routes.
@@ -82,16 +76,8 @@ func main() {
 
 	mux.HandleFunc("/secure/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("user")
-		if err := inputvalidation.LengthBetween(user, 1, 64); err != nil {
+		if err := inputvalidation.ValidateIdentifier(user); err != nil {
 			http.Error(w, "invalid user", http.StatusBadRequest)
-			return
-		}
-		if err := inputvalidation.UTF8(user); err != nil {
-			http.Error(w, "invalid utf-8", http.StatusBadRequest)
-			return
-		}
-		if err := inputvalidation.MatchesRegex(user, allowedIdent); err != nil {
-			http.Error(w, "invalid user characters", http.StatusBadRequest)
 			return
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
@@ -103,8 +89,8 @@ func main() {
 			http.Error(w, "invalid user", http.StatusBadRequest)
 			return
 		}
-		if err := inputvalidation.MatchesRegex(user, allowedIdent); err != nil {
-			http.Error(w, "invalid user characters", http.StatusBadRequest)
+		if err := inputvalidation.ValidateIdentifier(user); err != nil {
+			http.Error(w, "invalid user", http.StatusBadRequest)
 			return
 		}
 		var balance int
@@ -169,7 +155,7 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
-		if err := inputvalidation.MatchesRegex(host, allowedHost); err != nil {
+		if err := inputvalidation.ValidateHost(host); err != nil {
 			http.Error(w, "invalid host characters", http.StatusBadRequest)
 			return
 		}
@@ -187,8 +173,8 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
-		if err := inputvalidation.MatchesRegex(resource, allowedIdent); err != nil {
-			http.Error(w, "invalid user characters", http.StatusBadRequest)
+		if err := inputvalidation.ValidateIdentifier(resource); err != nil {
+			http.Error(w, "invalid user", http.StatusBadRequest)
 			return
 		}
 		if resource == "" {
@@ -228,8 +214,8 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
-		if err := inputvalidation.MatchesRegex(sub, allowedIdent); err != nil {
-			http.Error(w, "invalid username characters", http.StatusBadRequest)
+		if err := inputvalidation.ValidateIdentifier(sub); err != nil {
+			http.Error(w, "invalid username", http.StatusBadRequest)
 			return
 		}
 		claims := jwt.MapClaims{"sub": sub, "iss": "securego", "aud": "securego", "exp": time.Now().Add(10 * time.Minute).Unix()}
