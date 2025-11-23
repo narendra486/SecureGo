@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,11 +20,17 @@ import (
 
 // JWTValidator validates JWTs with issuer/audience/alg whitelists and clock skew.
 type JWTValidator struct {
-	Issuer     string
-	Audiences  []string
-	Algorithms []string
-	KeyFunc    jwt.Keyfunc
-	ClockSkew  time.Duration
+	Issuer            string
+	Audiences         []string
+	Algorithms        []string
+	KeyFunc           jwt.Keyfunc
+	ClockSkew         time.Duration
+	RequireExpiration bool
+	RequireNotBefore  bool
+	RequireSubject    bool
+	AllowedTypes      []string
+	AllowedKids       []string
+	SubjectValidator  func(string) error
 }
 
 // Validate parses and validates a token string, returning claims map when valid.
@@ -34,9 +41,27 @@ func (v JWTValidator) Validate(ctx context.Context, tokenString string) (jwt.Map
 		jwt.WithLeeway(v.ClockSkew),
 	)
 	claims := jwt.MapClaims{}
-	_, err := parser.ParseWithClaims(tokenString, claims, v.KeyFunc)
+	tok, err := parser.ParseWithClaims(tokenString, claims, v.KeyFunc)
 	if err != nil {
 		return nil, fmt.Errorf("jwt parse: %w", err)
+	}
+	if tok.Method.Alg() == jwt.SigningMethodNone.Alg() {
+		return nil, errors.New("none algorithm not allowed")
+	}
+	if len(v.Algorithms) > 0 && !inSlice(tok.Method.Alg(), v.Algorithms) {
+		return nil, errors.New("unexpected signing algorithm")
+	}
+	if len(v.AllowedTypes) > 0 {
+		typ, _ := tok.Header["typ"].(string)
+		if typ == "" || !inSliceFold(typ, v.AllowedTypes) {
+			return nil, errors.New("invalid typ header")
+		}
+	}
+	if len(v.AllowedKids) > 0 {
+		kid, _ := tok.Header["kid"].(string)
+		if kid == "" || !inSlice(kid, v.AllowedKids) {
+			return nil, errors.New("invalid kid header")
+		}
 	}
 	if iss, ok := claims["iss"].(string); !ok || iss != v.Issuer {
 		return nil, errors.New("invalid issuer")
@@ -44,6 +69,44 @@ func (v JWTValidator) Validate(ctx context.Context, tokenString string) (jwt.Map
 	if len(v.Audiences) > 0 {
 		if !audContains(claims, v.Audiences) {
 			return nil, errors.New("invalid audience")
+		}
+	}
+	now := time.Now()
+	if v.RequireExpiration {
+		expRaw, ok := claims["exp"]
+		if !ok {
+			return nil, errors.New("exp required")
+		}
+		exp, err := timeFromClaim(expRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid exp: %w", err)
+		}
+		if now.After(exp.Add(v.ClockSkew)) {
+			return nil, errors.New("token expired")
+		}
+	}
+	if v.RequireNotBefore {
+		nbfRaw, ok := claims["nbf"]
+		if !ok {
+			return nil, errors.New("nbf required")
+		}
+		nbf, err := timeFromClaim(nbfRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid nbf: %w", err)
+		}
+		if now.Add(v.ClockSkew).Before(nbf) {
+			return nil, errors.New("token not yet valid")
+		}
+	}
+	if v.RequireSubject {
+		sub, ok := claims["sub"].(string)
+		if !ok || strings.TrimSpace(sub) == "" {
+			return nil, errors.New("subject required")
+		}
+		if v.SubjectValidator != nil {
+			if err := v.SubjectValidator(sub); err != nil {
+				return nil, fmt.Errorf("invalid subject: %w", err)
+			}
 		}
 	}
 	return claims, nil
@@ -74,6 +137,44 @@ func inSlice(val string, list []string) bool {
 		}
 	}
 	return false
+}
+
+func inSliceFold(val string, list []string) bool {
+	for _, v := range list {
+		if strings.EqualFold(v, val) {
+			return true
+		}
+	}
+	return false
+}
+
+func timeFromClaim(v any) (time.Time, error) {
+	switch t := v.(type) {
+	case float64:
+		return time.Unix(int64(t), 0), nil
+	case int64:
+		return time.Unix(t, 0), nil
+	case int:
+		return time.Unix(int64(t), 0), nil
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return time.Unix(i, 0), nil
+		}
+		if f, err := t.Float64(); err == nil {
+			return time.Unix(int64(f), 0), nil
+		}
+	case string:
+		if t == "" {
+			return time.Time{}, errors.New("empty time value")
+		}
+		if i, err := strconv.ParseInt(t, 10, 64); err == nil {
+			return time.Unix(i, 0), nil
+		}
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return time.Unix(int64(f), 0), nil
+		}
+	}
+	return time.Time{}, errors.New("unsupported time claim format")
 }
 
 // StaticKeyFunc returns a Keyfunc for HMAC/RS/ES/Ed keys.

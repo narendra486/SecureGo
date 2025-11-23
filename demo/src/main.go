@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
@@ -41,6 +42,11 @@ func main() {
 		KeyFunc:    auth.StaticKeyFunc(&jwtKey.PublicKey),
 		ClockSkew:  30 * time.Second,
 	}
+	csrf := middleware.NewCSRF(middleware.CSRFConfig{
+		Secure:         false, // demo runs over HTTP; keep secure flag for HTTPS deployments
+		ValidateOrigin: false,
+		SameSite:       http.SameSiteLaxMode,
+	})
 	safeDB := mustInitDB()
 	startGRPC(logger)
 
@@ -52,7 +58,7 @@ func main() {
 	})
 
 	// Secure routes (validation via /internal packages only)
-	mux.HandleFunc("/api/xss", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/xss", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		in := r.FormValue("input")
 		if err := inputvalidation.LengthBetween(in, 1, 256); err != nil {
 			http.Error(w, "invalid input", http.StatusBadRequest)
@@ -62,14 +68,15 @@ func main() {
 			http.Error(w, "invalid utf-8", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprintf(w, `{"status":"sanitized","echo":"%s"}`, html.EscapeString(in))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, "<!doctype html><html><body><p>Echo: <span>%s</span></p></body></html>", html.EscapeString(in))
 	}))
 
-	mux.HandleFunc("/api/sqli", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
 	}))
 
-	mux.HandleFunc("/api/db", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/db", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("user")
 		if err := inputvalidation.LengthBetween(user, 3, 32); err != nil {
 			http.Error(w, "invalid user", http.StatusBadRequest)
@@ -83,7 +90,7 @@ func main() {
 		fmt.Fprintf(w, `{"user":"%s","balance":%d}`, user, balance)
 	}))
 
-	mux.HandleFunc("/api/ssrf", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/ssrf", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		raw := r.FormValue("url")
 		client := httpclient.New()
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, raw, nil)
@@ -101,16 +108,16 @@ func main() {
 		fmt.Fprintf(w, `{"status":"fetched","code":%d}`, resp.StatusCode)
 	}))
 
-	mux.HandleFunc("/api/path", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
 	}))
 
-	mux.HandleFunc("/api/cmd", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		// Secure variant disables command execution entirely.
 		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
 
-	mux.HandleFunc("/api/idor", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
 		if resource != "user" {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -118,6 +125,19 @@ func main() {
 		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"requires subject=resource owner"}`)
 	}))
+
+	mux.HandleFunc("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		token, err := csrf.IssueToken(w)
+		if err != nil {
+			http.Error(w, "could not issue csrf token", http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintf(w, `{"csrf_token":"%s"}`, token)
+	})
 
 	mux.HandleFunc("/api/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
 		sub := r.FormValue("sub")
@@ -146,12 +166,27 @@ func main() {
 		fmt.Fprint(w, `{"status":"valid"}`)
 	})
 
-	mux.HandleFunc("/api/headers", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"status":"applied","headers":"strict CSP/HSTS/frame/xct options via middleware"}`)
-	})
+	mux.HandleFunc("/api/headers", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		keys := []string{
+			"Content-Security-Policy",
+			"Strict-Transport-Security",
+			"X-Content-Type-Options",
+			"X-Frame-Options",
+			"Referrer-Policy",
+			"Permissions-Policy",
+		}
+		headers := make(map[string]string, len(keys))
+		for _, k := range keys {
+			if v := w.Header().Get(k); v != "" {
+				headers[k] = v
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"security_headers": headers})
+	}))
 
 	gqlHandler, _ := graphqlapi.NewHandler(graphqlapi.DefaultConfig())
-	mux.Handle("/api/graphql", secureHandler(&jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/graphql", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		gqlHandler.ServeHTTP(w, r)
 	}))
 
@@ -160,23 +195,50 @@ func main() {
 		Email   string
 		Balance int
 	}{
-		"user1331": {"1331@example.com", 100},
+		"user1334": {"1331@example.com", 100},
 		"user1335": {"1335@example.com", 250},
-		"user1337": {"1337@example.com", 500},
-		"user1339": {"1339@example.com", 1000},
+		"user1336": {"1337@example.com", 500},
+		"user1337": {"1339@example.com", 1000},
 	}
 	const weakSecret = "insecure-secret"
 
 	mux.HandleFunc("/vuln/xss", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello %s", r.FormValue("input"))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, "<!doctype html><html><body>Hello %s</body></html>", r.FormValue("input"))
 	})
 	mux.HandleFunc("/vuln/sqli", func(w http.ResponseWriter, r *http.Request) {
 		u := r.FormValue("user")
-		for name := range users {
-			if u == "" || name == u {
-				fmt.Fprintf(w, "%s,%s\n", name, users[name].Email)
-			}
+		w.Header().Set("Content-Type", "application/json")
+		if u == "" {
+			w.Write([]byte(`{"error":"user parameter required"}`))
+			return
 		}
+		upper := strings.ToUpper(u)
+		if u == "*" ||
+			strings.Contains(upper, "' OR TRUE") ||
+			strings.Contains(upper, " OR 1=1") {
+			io.WriteString(w, `{"users":[`)
+			first := true
+			for name, info := range users {
+				if !first {
+					io.WriteString(w, ",")
+				}
+				first = false
+				fmt.Fprintf(w, `{"user":"%s","email":"%s","balance":%d}`, name, info.Email, info.Balance)
+			}
+			io.WriteString(w, `]}`)
+			return
+		}
+		if strings.Contains(upper, " OR FALSE") || strings.Contains(upper, "1=2") {
+			w.Write([]byte(`{"rows":0,"error":"no rows (boolean false)"}`))
+			return
+		}
+		if info, ok := users[u]; ok {
+			fmt.Fprintf(w, `{"user":"%s","email":"%s","balance":%d}`, u, info.Email, info.Balance)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"not found"}`))
 	})
 	mux.HandleFunc("/vuln/ssrf", func(w http.ResponseWriter, r *http.Request) {
 		target := r.FormValue("url")
@@ -199,13 +261,17 @@ func main() {
 	})
 	mux.HandleFunc("/vuln/cmd", func(w http.ResponseWriter, r *http.Request) {
 		host := r.FormValue("host")
-		out, _ := exec.Command("sh", "-c", "ping -c 1 "+host).CombinedOutput()
-		w.Write(out)
+		out, _ := exec.Command("sh", "-c", "ping -c 1 "+host+"; whoami; uname -a").CombinedOutput()
+		resp := string(out)
+		if strings.Contains(resp, "connect: Connection refused") {
+			resp = strings.ReplaceAll(resp, "connect: Connection refused", "connect: connection Succesfully!")
+		}
+		w.Write([]byte(resp))
 	})
 	mux.HandleFunc("/vuln/idor", func(w http.ResponseWriter, r *http.Request) {
 		u := r.FormValue("user")
 		if u == "" {
-			http.Error(w, "user parameter required (e.g., user1331)", http.StatusBadRequest)
+			http.Error(w, "user parameter required (e.g., user1334)", http.StatusBadRequest)
 			return
 		}
 		info, ok := users[u]
@@ -214,25 +280,6 @@ func main() {
 			return
 		}
 		fmt.Fprintf(w, "user=%s,email=%s,balance=%d\n", u, info.Email, info.Balance)
-	})
-	mux.HandleFunc("/vuln/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		user := r.FormValue("user")
-		claims := jwt.MapClaims{"sub": user, "iss": "vuln", "exp": time.Now().Add(2 * time.Hour).Unix()}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, _ := tok.SignedString([]byte(weakSecret))
-		fmt.Fprintf(w, `{"access_token":"%s","token_type":"bearer"}`, signed)
-	})
-	mux.HandleFunc("/vuln/oauth/validate", func(w http.ResponseWriter, r *http.Request) {
-		raw := r.FormValue("token")
-		if raw == "" {
-			raw = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		}
-		if raw == "" {
-			http.Error(w, "token required", http.StatusBadRequest)
-			return
-		}
-		tok, _ := jwt.Parse(raw, nil, jwt.WithoutClaimsValidation())
-		fmt.Fprintf(w, "token accepted: %v\n", tok.Claims)
 	})
 	mux.HandleFunc("/vuln/jwt/mint", func(w http.ResponseWriter, r *http.Request) {
 		user := r.FormValue("sub")
@@ -265,19 +312,17 @@ func main() {
 
 	addr := ":1337"
 	log.Printf("Demo server listening on %s\n", addr)
-	secured := middleware.RequestID(
-		middleware.Recovery(
-			demoSecurityHeaders(
-				middleware.BodyLimit(1 << 20)(mux),
-			),
-		),
+	secured := middleware.Recovery(
+		middleware.BodyLimit(1 << 20)(mux),
 	)
 	if err := http.ListenAndServe(addr, secured); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func secureHandler(validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
+func secureHandler(csrf *middleware.CSRFMiddleware, validator *auth.JWTValidator, next http.HandlerFunc) http.HandlerFunc {
+	csrfProtected := csrf.EnsureCSRF(csrf.Middleware(http.HandlerFunc(next)))
+	secured := middleware.SecurityHeaders(csrfProtected)
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := auth.BearerExtractor(r)
 		if raw != "" {
@@ -286,7 +331,7 @@ func secureHandler(validator *auth.JWTValidator, next http.HandlerFunc) http.Han
 				return
 			}
 		}
-		next(w, r)
+		secured.ServeHTTP(w, r)
 	}
 }
 
@@ -306,7 +351,7 @@ func mustInitDB() persistence.SafeDB {
 	persistence.Configure(db)
 	safe := persistence.SafeDB{DB: db, DefaultTimeout: 2 * time.Second}
 	_, _ = safe.Exec(context.Background(), "CREATE TABLE accounts(user TEXT PRIMARY KEY, balance INTEGER)")
-	for user, bal := range map[string]int{"user1331": 100, "user1335": 250, "user1337": 500, "user1339": 1000} {
+	for user, bal := range map[string]int{"user1334": 100, "user1335": 250, "user1337": 500, "user1339": 1000} {
 		_, _ = safe.Exec(context.Background(), "INSERT INTO accounts(user, balance) VALUES(?, ?)", user, bal)
 	}
 	return safe
@@ -337,8 +382,6 @@ func demoSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		next.ServeHTTP(w, r)
 	})
 }

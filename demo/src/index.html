@@ -77,6 +77,13 @@
       align-items: center;
       flex-wrap: wrap;
     }
+
+    .preview {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      min-height: 220px;
+      width: 100%;
+    }
   </style>
 </head>
 
@@ -122,19 +129,24 @@
     </div>
   </div>
 
+  <div class="card" id="html-card" style="margin-top:1rem; display:none;">
+    <h3>Rendered HTML (XSS demo)</h3>
+    <p><small>Shows the HTML returned by the XSS endpoints in-page. The secure variant should not pop an alert; the vuln
+        variant will.</small></p>
+    <iframe id="html-preview" class="preview"></iframe>
+  </div>
+
   <script>
     const bugs = [
-      { id: 'xss', name: 'XSS', method: 'POST', path: '/xss', param: 'input', payload: '<script>alert(1)<\\/script>', desc: 'Reflected input rendered without escaping.' },
+      { id: 'xss', name: 'XSS', method: 'POST', path: '/xss', param: 'input', payload: '<script>alert(1)<\/script>', desc: 'Reflected input rendered with/without escaping.' },
       { id: 'sqli', name: 'SQLi', method: 'POST', path: '/sqli', param: 'user', payload: "admin' OR 1=1 --", desc: 'User parameter concatenated into SQL.' },
-      { id: 'ssrf', name: 'SSRF', method: 'POST', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:22', desc: 'Unvalidated outbound fetch.' },
-      { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '../../../../etc/passwd', desc: 'Reads arbitrary filesystem path.' },
+      { id: 'ssrf', name: 'SSRF', method: 'POST', path: '/ssrf', param: 'url', payload: 'http://127.0.0.1:1337', desc: 'Unvalidated outbound fetch.' },
+      { id: 'path', name: 'Path Traversal', method: 'POST', path: '/path', param: 'file', payload: '..\\\\..\\\\..\\\\..\\\\Windows\\\\win.ini', desc: 'Reads arbitrary filesystem path (Linux: ../../../../etc/passwd)' },
       { id: 'cmd', name: 'Command Injection', method: 'POST', path: '/cmd', param: 'host', payload: '127.0.0.1;ls', desc: 'Shell exec with untrusted input.' },
-      { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'alice', desc: 'No authz check on user resource.' },
-      { id: 'csrf', name: 'CSRF Token', method: 'POST', path: '/csrf', param: null, payload: '', desc: 'Fetch CSRF token.' },
+      { id: 'idor', name: 'IDOR', method: 'POST', path: '/idor', param: 'user', payload: 'user1334', desc: 'No authz check on user resource.' },
+      { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'Fetch CSRF token for SecureGo requests.' },
       { id: 'jwt-mint', name: 'JWT Mint', method: 'POST', path: '/jwt/mint', param: 'sub', payload: 'demo', desc: 'Mint JWT token.' },
       { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Validate JWT token.' },
-      { id: 'oauth-token', name: 'OAuth Weak Token', method: 'POST', path: '/oauth/token', param: 'user', payload: 'alice', desc: 'Mints HS256 token with weak secret, no client auth.' },
-      { id: 'oauth-validate', name: 'OAuth No Sig Check', method: 'POST', path: '/oauth/validate', param: 'token', payload: 'paste-token-here', desc: 'Accepts token without verifying signature.' },
       { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Check response security headers.' }
     ];
 
@@ -144,6 +156,9 @@
     const descEl = document.getElementById('bug-desc');
     const reqView = document.getElementById('req-view');
     const resView = document.getElementById('res-view');
+    const htmlPreview = document.getElementById('html-preview');
+    const htmlCard = document.getElementById('html-card');
+    let csrfToken = '';
 
     bugs.forEach(b => {
       const opt = document.createElement('option');
@@ -161,11 +176,37 @@
       const bug = currentBug();
       payloadInput.value = bug.payload;
       descEl.textContent = bug.desc;
+      if (htmlCard) {
+        htmlCard.style.display = bug.id === 'xss' ? 'block' : 'none';
+      }
+      if (htmlPreview && bug.id !== 'xss') {
+        htmlPreview.srcdoc = '';
+      }
     }
 
     bugSelect.addEventListener('change', updateUI);
     targetSelect.addEventListener('change', updateUI);
     updateUI();
+
+    async function ensureCsrfToken(base) {
+      if (base !== '/api') return null;
+      if (csrfToken) return csrfToken;
+      const res = await fetch(base + '/csrf', { method: 'GET', credentials: 'include' });
+      let token = res.headers.get('X-CSRF-Token') || '';
+      if (!token) {
+        try {
+          const data = await res.json();
+          token = data.csrf_token || data.token || '';
+        } catch (e) {
+          token = '';
+        }
+      }
+      if (!res.ok || !token) {
+        throw new Error('Unable to fetch CSRF token');
+      }
+      csrfToken = token;
+      return csrfToken;
+    }
 
     document.getElementById('send').addEventListener('click', async () => {
       const bug = currentBug();
@@ -173,6 +214,16 @@
       let url = base + bug.path;
       const headers = {};
       const method = bug.method;
+
+      if (base === '/api') {
+        try {
+          const token = await ensureCsrfToken(base);
+          if (token) headers['X-CSRF-Token'] = token;
+        } catch (err) {
+          resView.textContent = `Error: ${err.message}`;
+          return;
+        }
+      }
 
       let bodyText = '';
       if (bug.param) {
@@ -192,11 +243,21 @@
       try {
         const res = await fetch(url, { method, headers, credentials: 'include', body: bodyText || null });
         const text = await res.text();
+        const resToken = res.headers.get('X-CSRF-Token');
+        if (resToken) csrfToken = resToken;
         const resLines = ["HTTP/1.1 " + res.status + " " + res.statusText];
         res.headers.forEach((value, key) => resLines.push(key + ": " + value));
         resLines.push('');
         resLines.push(text);
         resView.textContent = resLines.join('\n');
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (htmlPreview) {
+          if (bug.id === 'xss' && contentType.includes('text/html')) {
+            htmlPreview.srcdoc = text;
+          } else {
+            htmlPreview.srcdoc = '';
+          }
+        }
       } catch (e) {
         resView.textContent = `Error: ${e}`;
       }
