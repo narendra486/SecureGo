@@ -31,4 +31,4 @@ docker compose up --build
 
 ## Vulnerable app (Go)
 - Included via `vuln-go` service; proxied in Caddy at `/vuln*`.
-- Use the UI at http://localhost:8080 to run XSS, SQLi, SSRF, traversal, command injection, and upload payloads against `vuln-go`, then replay against SecureGO to confirm they’re blocked.
+- Use the UI at http://localhost:8080 to run XSS, SQLi, SSRF, traversal, command injection, IDOR, and weak OAuth token/validate payloads against `vuln-go`, then replay against SecureGO to confirm they’re blocked.
