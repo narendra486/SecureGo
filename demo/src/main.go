@@ -74,6 +74,15 @@ func main() {
 	}))
 
 	mux.HandleFunc("/secure/sqli", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		user := r.FormValue("user")
+		if err := inputvalidation.LengthBetween(user, 1, 64); err != nil {
+			http.Error(w, "invalid user", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(user); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"parameterized queries only"}`)
 	}))
 
@@ -110,16 +119,46 @@ func main() {
 	}))
 
 	mux.HandleFunc("/secure/path", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		path := r.FormValue("file")
+		if err := inputvalidation.LengthBetween(path, 1, 256); err != nil {
+			http.Error(w, "invalid file", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(path); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
+		if _, err := inputvalidation.SanitizePath(".", path); err != nil {
+			http.Error(w, "path traversal denied", http.StatusBadRequest)
+			return
+		}
 		fmt.Fprint(w, `{"status":"blocked","reason":"path traversal denied"}`)
 	}))
 
 	mux.HandleFunc("/secure/cmd", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
+		host := r.FormValue("host")
+		if err := inputvalidation.LengthBetween(host, 1, 128); err != nil {
+			http.Error(w, "invalid host", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(host); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
 		// Secure variant disables command execution entirely.
 		fmt.Fprint(w, `{"status":"blocked","reason":"command execution disabled"}`)
 	}))
 
 	mux.HandleFunc("/secure/idor", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		resource := r.FormValue("user")
+		if err := inputvalidation.LengthBetween(resource, 1, 64); err != nil {
+			http.Error(w, "invalid user", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(resource); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
 		if resource == "" {
 			http.Error(w, "user required", http.StatusBadRequest)
 			return
@@ -193,7 +232,16 @@ func main() {
 
 	mux.HandleFunc("/secure/error", secureHandler(csrf, &jwtValidator, func(w http.ResponseWriter, r *http.Request) {
 		cause := r.FormValue("cause")
-		if cause == "panic" {
+		if err := inputvalidation.LengthBetween(cause, 1, 128); err != nil {
+			http.Error(w, "invalid cause", http.StatusBadRequest)
+			return
+		}
+		if err := inputvalidation.UTF8(cause); err != nil {
+			http.Error(w, "invalid utf-8", http.StatusBadRequest)
+			return
+		}
+		lower := strings.ToLower(cause)
+		if strings.Contains(lower, "panic") || strings.Contains(cause, "!") {
 			// Let recovery middleware return a generic 500 without stack leakage.
 			panic("demo panic")
 		}
@@ -334,6 +382,22 @@ func main() {
 	})
 	mux.HandleFunc("/vuln/headers", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "no security headers here\n")
+	})
+	mux.HandleFunc("/vuln/graphql", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sample := `{
+  "data": {
+    "__schema": {
+      "queryType": { "name": "Query" },
+      "mutationType": null,
+      "types": [
+        { "kind": "OBJECT", "name": "Query", "fields": [{ "name": "hello", "type": { "name": "String", "kind": "SCALAR" } }] },
+        { "kind": "SCALAR", "name": "String", "fields": null }
+      ]
+    }
+  }
+}`
+		fmt.Fprint(w, sample)
 	})
 
 	addr := ":1337"

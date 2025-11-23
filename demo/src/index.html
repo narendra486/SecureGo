@@ -84,7 +84,6 @@
       min-height: 220px;
       width: 100%;
     }
-
   </style>
 </head>
 
@@ -152,8 +151,8 @@
       { id: 'csrf', name: 'CSRF Token', method: 'GET', path: '/csrf', param: null, payload: '', desc: 'A protection mechanism preventing attackers from triggering user actions. The secure route requires a valid anti-CSRF token; the vulnerable route does not.' },
       { id: 'jwt-mint', name: 'JWT Token', method: 'POST', path: '/jwt/mint', param: 'username', payload: 'user1334', desc: 'Issues a signed JWT for the subject provided. Useful for demonstrating how tokens and claims are created.' },
       { id: 'jwt-validate', name: 'JWT Validate', method: 'POST', path: '/jwt/validate', param: 'token', payload: 'paste-token-here', desc: 'Checks whether a submitted JWT is valid—verifying signature, issuer, audience, and expiry.' },
-      { id: 'error', name: 'Error Handling', method: 'POST', path: '/error', param: 'cause', payload: 'panic', desc: 'Error handling: vulnerable route leaks stack traces; secure route returns a generic error.' },
-      { id: 'graphql', name: 'GraphQL Introspection', method: 'POST', path: '/graphql', param: null, payload: '{"query":"{ __schema { queryType { name } } }"}', json: true, desc: 'GraphQL introspection check; secure handler should reject or limit schema leakage.' },
+      { id: 'error', name: 'Error Validation', method: 'POST', path: '/error', param: 'cause', payload: "test<script>alert(1)<\/script>", desc: 'Error handling/validation: vulnerable route leaks stack traces; secure route returns a generic error without internals.' },
+      { id: 'graphql', name: 'GraphQL Introspection', method: 'POST', path: '/graphql', param: null, payload: '{"query":"{ __schema { queryType { name } } }"}', json: true, desc: 'GraphQL introspection: secure target should block/limit; vuln target returns schema sample.' },
       { id: 'headers', name: 'Security Headers', method: 'POST', path: '/headers', param: null, payload: '', desc: 'Shows browser-hardening headers added by middleware, such as CSP, HSTS, and X-Frame-Options.' }
     ];
 
