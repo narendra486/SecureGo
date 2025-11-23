@@ -15,18 +15,27 @@ type PingResponse struct {
 	Message string
 }
 
-// PingService implements a simple unary Ping method.
-type PingService struct{}
+// PingServiceServer describes the Ping RPC.
+type PingServiceServer interface {
+	Ping(context.Context, *PingRequest) (*PingResponse, error)
+}
 
-func (p PingService) Ping(ctx context.Context, req *PingRequest) (*PingResponse, error) {
+// pingService is a default implementation.
+type pingService struct{}
+
+func (p pingService) Ping(ctx context.Context, req *PingRequest) (*PingResponse, error) {
 	return &PingResponse{Message: "pong: " + req.Message}, nil
 }
 
 // RegisterPing registers the Ping service on a gRPC server.
-func RegisterPing(s *grpc.Server) {
+// If srv is nil, a default implementation is used.
+func RegisterPing(s *grpc.Server, srv PingServiceServer) {
+	if srv == nil {
+		srv = pingService{}
+	}
 	s.RegisterService(&grpc.ServiceDesc{
 		ServiceName: "securego.PingService",
-		HandlerType: (*PingService)(nil),
+		HandlerType: (*PingServiceServer)(nil),
 		Methods: []grpc.MethodDesc{
 			{
 				MethodName: "Ping",
@@ -35,9 +44,9 @@ func RegisterPing(s *grpc.Server) {
 					if err := dec(in); err != nil {
 						return nil, err
 					}
-					return srv.(PingService).Ping(ctx, in)
+					return srv.(PingServiceServer).Ping(ctx, in)
 				},
 			},
 		},
-	}, PingService{})
+	}, srv)
 }

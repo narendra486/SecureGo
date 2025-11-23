@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
@@ -348,7 +347,7 @@ func startGRPC(logger telemetry.Logger) {
 			return
 		}
 		s := grpcapi.NewServer(logger, grpcapi.DefaultConfig())
-		grpcapi.RegisterPing(s)
+		grpcapi.RegisterPing(s, nil)
 		logger.Info("grpc server listening", "addr", ":1338")
 		if err := s.Serve(lis); err != nil && !strings.Contains(err.Error(), "closed") {
 			logger.Error("grpc serve failed", "err", err)
