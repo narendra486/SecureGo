@@ -1,19 +1,25 @@
 # SecureGo
 
-SecureGo is a secure-by-default Go starter for HTTP, GraphQL, and gRPC services. The toolkit wraps standard libraries with safe defaults (tight timeouts, secure headers, CSRF-resilient JSON-only routes, hardened crypto, request IDs, panic recovery, and env-first configuration).
+SecureGo is a secure-by-default Go starter kit for HTTP, GraphQL, and gRPC services. The toolkit wraps standard libraries with safe defaults (tight timeouts, secure headers, CSRF-resilient JSON-only routes, hardened crypto, request IDs, panic recovery, and environment-first configuration).
 
 ## Quick start
 
+Run the local demo which includes both secure and vulnerable endpoints for teaching purposes. The demo shows middleware usage (CSRF, JWT/session, SSRF-guard, input validation), GraphQL and gRPC examples, and safe/potentially insecure flows.
+
 ```bash
-go run ./cmd/example-api         # HTTP on :8443 (or HTTP_ADDR)
-GRPC_ADDR=:50051 go run ./cmd/example-api  # gRPC listener
+# Run the demo HTTP server (default :1337) and a gRPC listener on :1338
+go run ./demo/src
+
+# Build the demo binary
+go build -o demo ./demo/src
+./demo
 ```
 
-Environment knobs:
+Environment knobs (package-wide defaults; demo binds to :1337 unless altered in code):
 
-- `HTTP_ADDR` / `GRPC_ADDR`: bind addresses (`:8443`, `:50051`).
-- `TLS_CERT_FILE` / `TLS_KEY_FILE`: enable HTTPS when present.
-- `TOKEN_KEY`: HMAC key for signing short-lived tokens (random one generated if missing).
+- `HTTP_ADDR` / `GRPC_ADDR`: bind addresses used by `internal/server` default (`:8443`, `:50051`) — server package defaults; the demo uses :1337 and :1338.
+- `TLS_CERT_FILE` / `TLS_KEY_FILE`: enable HTTPS when present (server package).
+- `TOKEN_KEY`: HMAC key for signing short-lived tokens (random one generated when missing in some utilities).
 
 ## What’s included
 
@@ -41,3 +47,36 @@ Environment knobs:
 - Apply linting/security checks in CI: `go vet`, `staticcheck`, `gosec`, `govulncheck`, `semgrep` tuned to forbid unsafe patterns (raw SQL concatenation, shell exec, unbounded readers).
 - Example Coraza CRS directives in `configs/waf.conf`; provide your own rule path.
 - Optional semgrep baseline `.semgrep.yml` and `.golangci.yml` for local/CI linting.
+
+## Demo
+
+The `demo` application (`demo/src/main.go`) contains both secure and vulnerable endpoints to demonstrate the differences between safe and unsafe implementations. It also starts a gRPC ping server on `:1338`.
+
+Start it with:
+
+```bash
+go run ./demo/src
+```
+
+Then visit `http://localhost:1337/` for the UI or use the various `secure/*` and `vuln/*` endpoints.
+
+## Development & Testing
+
+Run the test suite and recommended tooling:
+
+```bash
+make test      # run unit tests
+make lint      # run golangci-lint (if installed)
+make vuln      # run govulncheck
+make gosec     # run gosec
+```
+
+See `docs/developer-usage.md` for a detailed developer guide and `docs/package-overview.md` for a per-package reference.
+
+## Contributing
+
+Contributions are welcome. Please open issues or PRs and reference the relevant docs (`docs/`) and tests to validate changes.
+
+## License
+
+This project does not include an explicit license file. Please contact the repository owner (narendra486) for license details.

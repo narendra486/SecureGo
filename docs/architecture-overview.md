@@ -2,7 +2,7 @@
 
 High-level map of what lives where:
 
-- `cmd/example-api/`: sample HTTP server showing middleware chain, CSRF, JWT/session demos, GraphQL, gRPC.
+- `demo/src/`: sample HTTP server showing middleware chain, CSRF, JWT/session demos, GraphQL, gRPC.
 - `internal/middleware/`: HTTP middleware (secure headers, panic recovery, body caps, CSRF, rate limiting, WAF hook, authZ scaffolds).
 - `internal/server/`: hardened HTTP server construction (timeouts/TLS).
 - `internal/auth/`: JWT validation, password KDFs, session cookies, opaque tokens, OAuth2 server scaffold, SAML skeleton.
